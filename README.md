@@ -1,5 +1,11 @@
 # llm-devproxy
 
+[![PyPI version](https://badge.fury.io/py/llm-devproxy.svg)](https://pypi.org/project/llm-devproxy/)
+[![Tests](https://github.com/asahik44/llm-devproxy/actions/workflows/test.yml/badge.svg)](https://github.com/asahik44/llm-devproxy/actions)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+
 > LLM development debug layer — every API call recorded, nothing lost.
 
 A local debug layer that solves the common pain points of LLM app development.
