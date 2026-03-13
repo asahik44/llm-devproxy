@@ -2,32 +2,30 @@
 
 > LLM development debug layer — every API call recorded, nothing lost.
 
-LLMアプリ開発中の「あるある」をすべて解決するローカルデバッグレイヤーです。
+A local debug layer that solves the common pain points of LLM app development.
 
-- **API呼び出しを全量自動記録** — 保存し忘れはありえない
-- **キャッシュで無駄なAPI代ゼロ** — 同じリクエストはDBから返す
-- **コスト爆発を防ぐ** — 上限設定でmockレスポンスを返す
-- **Gitのように巻き戻せる** — 「あのステップ3からやり直したい」が即できる
+- **Auto-records every API call** — nothing is ever lost
+- **Cache eliminates redundant costs** — same requests return from DB
+- **Prevents cost explosions** — mock responses when limit is reached
+- **Rewind like Git** — "go back to step 3 and try again" in seconds
 
 ---
 
-## インストール
-
+## Install
 ```bash
-pip install llm-devproxy                  # 最小構成
-pip install "llm-devproxy[openai]"        # OpenAI対応
-pip install "llm-devproxy[anthropic]"     # Anthropic対応
-pip install "llm-devproxy[gemini]"        # Gemini対応
-pip install "llm-devproxy[proxy]"         # プロキシサーバー対応
-pip install "llm-devproxy[all]"           # 全部入り
+pip install llm-devproxy                  # minimal
+pip install "llm-devproxy[openai]"        # with OpenAI
+pip install "llm-devproxy[anthropic]"     # with Anthropic
+pip install "llm-devproxy[gemini]"        # with Gemini
+pip install "llm-devproxy[proxy]"         # with proxy server
+pip install "llm-devproxy[all]"           # everything
 ```
 
 ---
 
-## 使い方 — ライブラリ編
+## Usage — Library
 
 ### OpenAI
-
 ```python
 import openai
 from llm_devproxy import DevProxy
@@ -35,7 +33,7 @@ from llm_devproxy import DevProxy
 proxy = DevProxy(daily_limit_usd=1.0)
 proxy.start_session("my_agent")
 
-# wrap_openai() の1行だけ追加
+# Just wrap your existing client
 client = proxy.wrap_openai(openai.OpenAI(api_key="sk-..."))
 
 response = client.chat.completions.create(
@@ -46,7 +44,6 @@ print(response.choices[0].message.content)
 ```
 
 ### Anthropic
-
 ```python
 import anthropic
 from llm_devproxy import DevProxy
@@ -65,7 +62,6 @@ print(response.text)
 ```
 
 ### Gemini
-
 ```python
 import google.generativeai as genai
 from llm_devproxy import DevProxy
@@ -81,15 +77,12 @@ print(response.text)
 
 ---
 
-## 使い方 — プロキシサーバー編
-
+## Usage — Proxy Server
 ```bash
-# サーバーを起動
 llm-devproxy start --port 8080 --limit 1.0
 ```
 
-アプリ側は `base_url` を変えるだけ：
-
+Just change `base_url` in your app — nothing else:
 ```python
 # OpenAI
 client = openai.OpenAI(
@@ -106,109 +99,113 @@ client = anthropic.Anthropic(
 
 ---
 
-## CLI コマンド一覧
-
+## CLI
 ```bash
-# セッション一覧
+# List recent sessions
 llm-devproxy history
 
-# セッションの中身を見る
+# Show all steps in a session
 llm-devproxy show my_agent
 
-# キーワード検索（「あのとき化合物について聞いたやつ」）
-llm-devproxy search "化合物"
+# Search through recorded prompts
+llm-devproxy search "keyword"
 
-# step 3に巻き戻す（元の履歴は消えない）
+# Rewind to step 3 (original history preserved)
 llm-devproxy rewind my_agent --step 3
 
-# 新しいブランチとして別の試みを記録
+# Rewind and start a new branch
 llm-devproxy rewind my_agent --step 3 --branch new_idea
 
-# コスト確認
+# Show cost stats
 llm-devproxy stats
-
-# タグ・メモを追加
-llm-devproxy tag-cmd <request_id> "重要"
-llm-devproxy memo-cmd <request_id> "このプロンプトが一番うまくいった"
-
-# 古いレスポンス本文を圧縮（メタデータは保持）
-llm-devproxy compress
 ```
 
 ---
 
-## タイムトラベルのユースケース
+## Time Travel Use Cases
 
-### エージェントの途中からやり直す
-
+### Resume an agent from the middle
 ```python
 proxy = DevProxy()
 
-# 昨日の実行のstep 8に巻き戻す
+# Rewind yesterday's run to step 8
 proxy.rewind("my_agent", step=8)
 
-# プロンプトを改善して再実行 → 新ブランチとして自動記録
+# Tweak the prompt and re-run → recorded as a new branch
 client = proxy.wrap_openai(openai.OpenAI())
 response = client.chat.completions.create(
     model="gpt-4o",
-    messages=[{"role": "user", "content": "改良したプロンプト"}]
+    messages=[{"role": "user", "content": "Improved prompt"}]
 )
 ```
 
-### 後日思いついたアイデアを試す
-
+### Find something from days ago
 ```bash
-# 3日前のセッションを検索
-llm-devproxy search "アプローチA"
-# → session=my_agent, step=5 がヒット
+llm-devproxy search "approach A"
+# → session=my_agent, step=5
 
-# そこに戻って新しい試みを始める
-llm-devproxy rewind my_agent --step 5 --branch "new_approach"
+llm-devproxy rewind my_agent --step 5 --branch "revisit"
 ```
 
-### CI/CDでAPI代をゼロにする
-
+### Zero API cost in CI/CD
 ```python
-# 同じリクエストはSQLiteキャッシュから返す
-# GitHub Actionsでも毎回課金されない
+# Same requests return from SQLite cache
+# No API charges in GitHub Actions
 proxy = DevProxy(cache_enabled=True)
 ```
 
 ---
 
-## DevProxy コンフィグ
-
+## Config
 ```python
 proxy = DevProxy(
-    db_path=".llm_devproxy.db",  # SQLiteのパス（デフォルト）
-    daily_limit_usd=1.0,          # 1日のコスト上限
-    session_limit_usd=None,       # セッション上限（任意）
+    db_path=".llm_devproxy.db",  # SQLite path
+    daily_limit_usd=1.0,          # daily cost limit
+    session_limit_usd=None,       # per-session limit (optional)
     on_exceed="mock",             # "mock" or "block"
-    cache_enabled=True,           # キャッシュON/OFF
-    compress_after_days=30,       # 古いレスポンスを圧縮する日数
+    cache_enabled=True,
+    compress_after_days=30,
 )
 ```
 
 ---
 
-## データはすべてローカル
+## All data stays local
 
-すべてのデータはローカルの `.llm_devproxy.db`（SQLite）に保存されます。
-外部サーバーへの送信は一切ありません。
-
----
-
-## ロードマップ
-
-- [x] Phase 1: キャッシュ・コストガード・全量自動記録
-- [x] Phase 2: プロキシサーバー（OpenAI/Anthropic/Gemini互換）・CLI
-- [x] Phase 3: Rewind・ブランチ・タグ・メモ
-- [ ] Phase 4: セマンティックキャッシュ（意味的に近いクエリもヒット）
-- [ ] Phase 5: Web UI（履歴ブラウザ・コスト可視化）
-- [ ] Phase 6: チーム共有機能（クラウド版）
+Everything is stored in `.llm_devproxy.db` (SQLite) on your machine.
+Nothing is sent to any external server.
 
 ---
 
-## ライセンス
+## Roadmap
+
+- [x] Phase 1: Cache, cost guard, auto-record everything
+- [x] Phase 2: Proxy server (OpenAI/Anthropic/Gemini compatible), CLI
+- [x] Phase 3: Rewind, branches, tags, memos
+- [ ] Phase 4: Semantic cache
+- [ ] Phase 5: Web UI (history browser, cost dashboard)
+- [ ] Phase 6: Team sharing (cloud edition)
+
+---
+
+<details>
+<summary>日本語版 README</summary>
+
+## llm-devproxy（日本語）
+
+LLMアプリ開発中の「あるある」をすべて解決するローカルデバッグレイヤーです。
+
+- **API呼び出しを全量自動記録** — 保存し忘れはありえない
+- **キャッシュで無駄なAPI代ゼロ** — 同じリクエストはDBから返す
+- **コスト爆発を防ぐ** — 上限設定でmockレスポンスを返す
+- **Gitのように巻き戻せる** — 「あのステップ3からやり直したい」が即できる
+
+詳しい使い方は英語版をご覧ください（内容は同じです）。
+
+</details>
+
+---
+
+## License
 
 MIT
