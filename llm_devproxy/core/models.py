@@ -76,7 +76,14 @@ class ProxyConfig:
 
     # キャッシュ
     cache_enabled: bool = True
-    cache_mode: str = "exact"           # "exact" / "semantic"(将来)
+    cache_mode: str = "exact"           # "exact" / "semantic" / "both"
+
+    # セマンティックキャッシュ設定
+    semantic_cache: bool = False
+    semantic_backend: str = "local"     # "local" (sentence-transformers) / "openai"
+    semantic_model: str = ""            # "multilingual"(default) / "english" / フルモデル名も可
+    similarity_threshold: float = 0.85  # 0.0〜1.0 コサイン類似度の閾値
+    semantic_max_candidates: int = 10   # 類似検索で取得する候補数
 
     # コスト管理
     daily_limit_usd: float = 1.0

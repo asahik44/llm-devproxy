@@ -255,6 +255,29 @@ class Storage:
                 WHERE timestamp < ? AND response_body != '{"compressed": true}'
             """, (cutoff,))
 
+    # ── Generic SQL helpers (used by semantic cache) ─────────
+
+    def execute_sql(self, sql: str, params: tuple = ()) -> None:
+        """汎用SQL実行（CREATE TABLE, INSERT, UPDATE等）。"""
+        with self._conn() as conn:
+            conn.execute(sql, params)
+
+    def fetch_all(self, sql: str, params: tuple = ()) -> list[tuple]:
+        """汎用SELECTクエリ。Row objectではなくtupleのリストを返す。"""
+        with self._conn() as conn:
+            conn.row_factory = None  # tupleで返す
+            rows = conn.execute(sql, params).fetchall()
+            conn.row_factory = sqlite3.Row  # 元に戻す
+        return rows
+
+    def find_by_id(self, record_id: str) -> Optional[RequestRecord]:
+        """IDでRequestRecordを1件取得。"""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM requests WHERE id = ?", (record_id,)
+            ).fetchone()
+        return self._row_to_request(row) if row else None
+
     # ── Converters ────────────────────────────────────────────
 
     def _row_to_session(self, row) -> Session:

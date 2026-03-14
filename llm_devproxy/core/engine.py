@@ -17,7 +17,7 @@ class Engine:
     def __init__(self, config: Optional[ProxyConfig] = None):
         self.config = config or ProxyConfig()
         self.storage = Storage(self.config.db_path)
-        self.cache = CacheManager(self.storage, self.config.cache_enabled)
+        self.cache = CacheManager(self.storage, self.config, self.config.cache_enabled)
         self.cost_guard = CostGuard(self.config, self.storage)
 
         # 現在のセッション
@@ -138,6 +138,9 @@ class Engine:
         )
         self.storage.save_request(record)
         self.storage.update_session_stats(session.id, cost)
+
+        # 4.5. セマンティックキャッシュ用embeddingを保存
+        self.cache.store_semantic(record, request_body)
 
         # 5. コスト警告チェック
         warned, ratio = self.cost_guard.warning_threshold(session.id)
