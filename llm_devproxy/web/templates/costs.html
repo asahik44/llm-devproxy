@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block title %}コスト - llm-devproxy{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>コスト推移</h2>
+</div>
+
+<!-- Filters -->
+<form class="filters" method="get" action="/costs" id="costForm">
+    <input type="date" name="date_from" value="{{ date_from }}"
+           style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: var(--radius); font-size: 13px;"
+           onchange="document.getElementById('costForm').submit()">
+    <span style="color: var(--text-muted); padding: 0 4px;">〜</span>
+    <input type="date" name="date_to" value="{{ date_to }}"
+           style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: var(--radius); font-size: 13px;"
+           onchange="document.getElementById('costForm').submit()">
+
+    <select name="provider" onchange="document.getElementById('costForm').submit()">
+        <option value="">全プロバイダー</option>
+        {% for p in providers %}
+        <option value="{{ p }}" {% if provider == p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+    </select>
+
+    <select name="model" onchange="document.getElementById('costForm').submit()">
+        <option value="">全モデル</option>
+        {% for m in models %}
+        <option value="{{ m }}" {% if model == m %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+    </select>
+
+    <button type="submit" class="btn">適用</button>
+
+    {% if provider or model %}
+    <a href="/costs?date_from={{ date_from }}&date_to={{ date_to }}" class="btn btn-ghost">フィルタクリア</a>
+    {% endif %}
+</form>
+
+<!-- Quick presets -->
+<div style="display: flex; gap: 6px; margin-bottom: 20px;">
+    {% set fp = "&provider=" ~ provider ~ "&model=" ~ model %}
+    <a href="/costs?date_from={{ today }}&date_to={{ today }}{{ fp }}"
+       class="btn btn-ghost" style="padding: 4px 12px; font-size: 12px; {{ 'border-color: var(--accent); color: var(--accent);' if date_from == today and date_to == today else '' }}">今日</a>
+    <a href="/costs?date_from={{ yesterday }}&date_to={{ yesterday }}{{ fp }}"
+       class="btn btn-ghost" style="padding: 4px 12px; font-size: 12px; {{ 'border-color: var(--accent); color: var(--accent);' if date_from == yesterday and date_to == yesterday else '' }}">前日</a>
+    {% for d, label in [(7, "7日"), (14, "14日"), (30, "30日"), (90, "90日")] %}
+    <a href="/costs?days={{ d }}{{ fp }}"
+       class="btn btn-ghost" style="padding: 4px 12px; font-size: 12px;">{{ label }}</a>
+    {% endfor %}
+</div>
+
+<!-- Summary cards -->
+<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;">
+    <div class="detail-card">
+        <h3>総コスト</h3>
+        <div style="font-size: 24px; font-weight: 700; font-family: var(--mono); color: var(--accent);">
+            ${{ "%.4f"|format(total_cost) }}
+        </div>
+    </div>
+    <div class="detail-card">
+        <h3>リクエスト数</h3>
+        <div style="font-size: 24px; font-weight: 700;">
+            {{ total_requests }}
+        </div>
+    </div>
+    <div class="detail-card">
+        <h3>キャッシュヒット</h3>
+        <div style="font-size: 24px; font-weight: 700; color: var(--green);">
+            {{ total_cached }} <span style="font-size: 14px; color: var(--text-muted);">({{ "%.1f"|format(cache_rate) }}%)</span>
+        </div>
+    </div>
+    <div class="detail-card">
+        <h3>節約額</h3>
+        <div style="font-size: 24px; font-weight: 700; color: var(--green);">
+            {% if total_requests > 0 and total_cached > 0 %}
+            ~${{ "%.4f"|format(total_cost / (total_requests - total_cached) * total_cached) if (total_requests - total_cached) > 0 else 0 }}
+            {% else %}
+            $0.0000
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Daily cost chart -->
+<div class="detail-card" style="margin-bottom: 24px;">
+    <h3>日別コスト推移</h3>
+    <div style="height: 300px; padding-top: 12px;">
+        <canvas id="dailyCostChart"></canvas>
+    </div>
+</div>
+
+<!-- Request count chart -->
+<div class="detail-card" style="margin-bottom: 24px;">
+    <h3>日別リクエスト数</h3>
+    <div style="height: 250px; padding-top: 12px;">
+        <canvas id="requestChart"></canvas>
+    </div>
+</div>
+
+<!-- Provider & Model breakdown -->
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+    <!-- By provider -->
+    <div class="detail-card">
+        <h3>プロバイダー別コスト</h3>
+        {% if by_provider %}
+        <table style="width: 100%; font-size: 13px;">
+            {% for p in by_provider %}
+            <tr>
+                <td><span class="badge badge-{{ p.provider }}">{{ p.provider }}</span></td>
+                <td class="cost" style="text-align: right;">${{ "%.4f"|format(p.total_cost) }}</td>
+                <td class="tokens" style="text-align: right;">{{ p.request_count }} req</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p style="color: var(--text-muted); font-size: 13px;">データなし</p>
+        {% endif %}
+    </div>
+
+    <!-- By model -->
+    <div class="detail-card">
+        <h3>モデル別コスト</h3>
+        {% if by_model %}
+        <table style="width: 100%; font-size: 13px;">
+            {% for m in by_model %}
+            <tr>
+                <td class="model-name" style="font-size: 11px;">{{ m.model }}</td>
+                <td class="cost" style="text-align: right;">${{ "%.4f"|format(m.total_cost) }}</td>
+                <td class="tokens" style="text-align: right;">{{ m.request_count }} req</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p style="color: var(--text-muted); font-size: 13px;">データなし</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Session costs -->
+<div class="detail-card">
+    <h3>セッション別コスト</h3>
+    {% if session_costs %}
+    <table style="width: 100%; font-size: 13px;">
+        <thead>
+            <tr>
+                <th style="font-size: 11px;">Session</th>
+                <th style="font-size: 11px; text-align: right;">Steps</th>
+                <th style="font-size: 11px; text-align: right;">Cached</th>
+                <th style="font-size: 11px; text-align: right;">Cost</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in session_costs %}
+            <tr>
+                <td>{{ s.name }}</td>
+                <td style="text-align: right;">{{ s.step_count }}</td>
+                <td style="text-align: right; color: var(--green);">{{ s.cached_count or 0 }}</td>
+                <td class="cost" style="text-align: right;">${{ "%.4f"|format(s.total_cost_usd) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--text-muted); font-size: 13px;">データなし</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const chartColors = {
+    accent: '#6c8aff',
+    accentDim: 'rgba(108, 138, 255, 0.2)',
+    green: '#4ade80',
+    greenDim: 'rgba(74, 222, 128, 0.2)',
+    text: '#8b90a0',
+    grid: '#2a2e3e',
+};
+
+const commonOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: chartColors.text, font: { size: 11 } } } },
+    scales: {
+        x: { ticks: { color: chartColors.text, font: { size: 10 } }, grid: { color: chartColors.grid } },
+        y: { ticks: { color: chartColors.text, font: { size: 10 } }, grid: { color: chartColors.grid } },
+    },
+};
+
+// Daily cost chart
+new Chart(document.getElementById('dailyCostChart'), {
+    type: 'line',
+    data: {
+        labels: {{ chart_labels|safe }},
+        datasets: [{
+            label: 'Cost ($)',
+            data: {{ chart_costs|safe }},
+            borderColor: chartColors.accent,
+            backgroundColor: chartColors.accentDim,
+            fill: true,
+            tension: 0.3,
+            pointRadius: 3,
+        }]
+    },
+    options: {
+        ...commonOptions,
+        scales: {
+            ...commonOptions.scales,
+            y: { ...commonOptions.scales.y, ticks: { ...commonOptions.scales.y.ticks, callback: v => '$' + v.toFixed(4) } },
+        },
+    },
+});
+
+// Request count chart
+new Chart(document.getElementById('requestChart'), {
+    type: 'bar',
+    data: {
+        labels: {{ chart_labels|safe }},
+        datasets: [
+            {
+                label: 'API calls',
+                data: {{ chart_requests|safe }},
+                backgroundColor: chartColors.accent,
+                borderRadius: 4,
+            },
+            {
+                label: 'Cached',
+                data: {{ chart_cached|safe }},
+                backgroundColor: chartColors.green,
+                borderRadius: 4,
+            },
+        ]
+    },
+    options: commonOptions,
+});
+</script>
+{% endblock %}

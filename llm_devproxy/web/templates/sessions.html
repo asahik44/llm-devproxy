@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}セッション比較 - llm-devproxy{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>セッション比較</h2>
+</div>
+
+<!-- Session selector -->
+<form class="filters" method="get" action="/sessions">
+    <select name="a" style="min-width: 250px;" onchange="this.form.submit()">
+        <option value="">セッションA を選択</option>
+        {% for s in available %}
+        <option value="{{ s.id }}" {% if a == s.id %}selected{% endif %}>
+            {{ s.name }} ({{ s.step_count }} steps / ${{ "%.4f"|format(s.total_cost_usd) }})
+        </option>
+        {% endfor %}
+    </select>
+
+    <span style="color: var(--text-muted); font-size: 18px; padding: 0 8px;">⟷</span>
+
+    <select name="b" style="min-width: 250px;" onchange="this.form.submit()">
+        <option value="">セッションB を選択</option>
+        {% for s in available %}
+        <option value="{{ s.id }}" {% if b == s.id %}selected{% endif %}>
+            {{ s.name }} ({{ s.step_count }} steps / ${{ "%.4f"|format(s.total_cost_usd) }})
+        </option>
+        {% endfor %}
+    </select>
+
+    <button type="submit" class="btn">比較</button>
+</form>
+
+{% if session_a and session_b %}
+<!-- Comparison summary -->
+<div style="display: grid; grid-template-columns: 1fr 80px 1fr; gap: 0; margin-bottom: 24px;">
+    <!-- Session A summary -->
+    <div class="detail-card" style="border-right: none; border-radius: var(--radius) 0 0 var(--radius);">
+        <h3 style="color: var(--accent);">{{ session_a.name }}</h3>
+        <div class="detail-row">
+            <span class="label">Steps</span>
+            <span class="value">{{ summary_a.steps }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Total cost</span>
+            <span class="value cost">${{ "%.4f"|format(summary_a.total_cost) }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Avg cost/step</span>
+            <span class="value cost">${{ "%.6f"|format(summary_a.avg_cost) }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Input tokens</span>
+            <span class="value tokens">{{ "{:,}".format(summary_a.total_input) }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Output tokens</span>
+            <span class="value tokens">{{ "{:,}".format(summary_a.total_output) }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Cache hits</span>
+            <span class="value" style="color: var(--green);">{{ summary_a.cached }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Models</span>
+            <span class="value" style="font-size: 11px;">{{ summary_a.models | join(", ") }}</span>
+        </div>
+    </div>
+
+    <!-- Diff column -->
+    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; background: var(--bg-card); border: 1px solid var(--border); padding: 8px 4px;">
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 20px;">DIFF</div>
+        {% set cost_diff = summary_b.total_cost - summary_a.total_cost %}
+        <div style="font-size: 12px; font-family: var(--mono); margin-bottom: 8px; color: {{ 'var(--red)' if cost_diff > 0 else 'var(--green)' }};">
+            {{ "+" if cost_diff > 0 else "" }}${{ "%.4f"|format(cost_diff) }}
+        </div>
+        {% set step_diff = summary_b.steps - summary_a.steps %}
+        <div style="font-size: 11px; color: var(--text-muted);">
+            {{ "+" if step_diff > 0 else "" }}{{ step_diff }} steps
+        </div>
+        {% set token_diff = summary_b.total_tokens - summary_a.total_tokens %}
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+            {{ "+" if token_diff > 0 else "" }}{{ "{:,}".format(token_diff) }} tok
+        </div>
+    </div>
+
+    <!-- Session B summary -->
+    <div class="detail-card" style="border-left: none; border-radius: 0 var(--radius) var(--radius) 0;">
+        <h3 style="color: var(--orange);">{{ session_b.name }}</h3>
+        <div class="detail-row">
+            <span class="label">Steps</span>
+            <span class="value">{{ summary_b.steps }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Total cost</span>
+            <span class="value cost">${{ "%.4f"|format(summary_b.total_cost) }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Avg cost/step</span>
+            <span class="value cost">${{ "%.6f"|format(summary_b.avg_cost) }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Input tokens</span>
+            <span class="value tokens">{{ "{:,}".format(summary_b.total_input) }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Output tokens</span>
+            <span class="value tokens">{{ "{:,}".format(summary_b.total_output) }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Cache hits</span>
+            <span class="value" style="color: var(--green);">{{ summary_b.cached }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Models</span>
+            <span class="value" style="font-size: 11px;">{{ summary_b.models | join(", ") }}</span>
+        </div>
+    </div>
+</div>
+
+<!-- Side-by-side step list -->
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+    <!-- Session A steps -->
+    <div class="detail-card">
+        <h3 style="color: var(--accent);">{{ session_a.name }} — ステップ一覧</h3>
+        {% if records_a %}
+        <table style="width: 100%; font-size: 12px;">
+            <thead>
+                <tr>
+                    <th style="font-size: 10px;">#</th>
+                    <th style="font-size: 10px;">Prompt</th>
+                    <th style="font-size: 10px; text-align: right;">Cost</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in records_a %}
+                <tr style="cursor: pointer;" onclick="window.location='/history/{{ item.record.id }}'">
+                    <td class="tokens">{{ item.record.step_id }}</td>
+                    <td class="prompt-text" style="max-width: 300px; font-size: 11px;">{{ item.prompt_preview }}</td>
+                    <td class="cost" style="text-align: right;">
+                        {% if item.record.is_cached %}
+                        <span class="badge badge-cached">cached</span>
+                        {% else %}
+                        ${{ "%.4f"|format(item.record.cost_usd) }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: var(--text-muted); font-size: 13px;">ステップなし</p>
+        {% endif %}
+    </div>
+
+    <!-- Session B steps -->
+    <div class="detail-card">
+        <h3 style="color: var(--orange);">{{ session_b.name }} — ステップ一覧</h3>
+        {% if records_b %}
+        <table style="width: 100%; font-size: 12px;">
+            <thead>
+                <tr>
+                    <th style="font-size: 10px;">#</th>
+                    <th style="font-size: 10px;">Prompt</th>
+                    <th style="font-size: 10px; text-align: right;">Cost</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in records_b %}
+                <tr style="cursor: pointer;" onclick="window.location='/history/{{ item.record.id }}'">
+                    <td class="tokens">{{ item.record.step_id }}</td>
+                    <td class="prompt-text" style="max-width: 300px; font-size: 11px;">{{ item.prompt_preview }}</td>
+                    <td class="cost" style="text-align: right;">
+                        {% if item.record.is_cached %}
+                        <span class="badge badge-cached">cached</span>
+                        {% else %}
+                        ${{ "%.4f"|format(item.record.cost_usd) }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: var(--text-muted); font-size: 13px;">ステップなし</p>
+        {% endif %}
+    </div>
+</div>
+
+{% elif a or b %}
+<div class="empty">
+    <h3>2つのセッションを選択してください</h3>
+    <p>比較するセッションを両方選んでください。</p>
+</div>
+
+{% else %}
+<div class="empty">
+    <h3>セッションを選択して比較</h3>
+    <p>2つのセッションを選ぶと、コスト・トークン・ステップの比較ができます。<br>rewind前後のセッションを比較して、プロンプト改善の効果を確認できます。</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -255,6 +255,125 @@ class Storage:
                 WHERE timestamp < ? AND response_body != '{"compressed": true}'
             """, (cutoff,))
 
+    # ── Cost analytics (used by Web UI graphs) ────────────────
+
+    def _cost_where(
+        self, date_from: str = "", date_to: str = "",
+        provider: str = "", model: str = "",
+    ) -> tuple[str, list]:
+        """コスト集計用のWHERE句を構築。"""
+        conditions = []
+        params: list = []
+        if date_from:
+            conditions.append("timestamp >= ?")
+            params.append(date_from)
+        if date_to:
+            conditions.append("timestamp < ?")
+            # date_toの翌日までを含める
+            params.append(date_to + "T23:59:59")
+        if provider:
+            conditions.append("provider = ?")
+            params.append(provider)
+        if model:
+            conditions.append("model = ?")
+            params.append(model)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        return where, params
+
+    def get_daily_costs(self, date_from: str = "", date_to: str = "",
+                        provider: str = "", model: str = "") -> list[dict]:
+        """日別コスト集計。"""
+        where, params = self._cost_where(date_from, date_to, provider, model)
+        with self._conn() as conn:
+            rows = conn.execute(f"""
+                SELECT
+                    DATE(timestamp) as date,
+                    SUM(cost_usd) as total_cost,
+                    SUM(input_tokens) as total_input,
+                    SUM(output_tokens) as total_output,
+                    COUNT(*) as request_count,
+                    SUM(CASE WHEN is_cached = 1 THEN 1 ELSE 0 END) as cached_count
+                FROM requests
+                {where}
+                GROUP BY DATE(timestamp)
+                ORDER BY date ASC
+            """, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_cost_by_provider(self, date_from: str = "", date_to: str = "",
+                             provider: str = "", model: str = "") -> list[dict]:
+        """プロバイダー別コスト。"""
+        where, params = self._cost_where(date_from, date_to, provider, model)
+        # is_cached除外を追加
+        if where:
+            where += " AND is_cached = 0"
+        else:
+            where = "WHERE is_cached = 0"
+        with self._conn() as conn:
+            rows = conn.execute(f"""
+                SELECT
+                    provider,
+                    SUM(cost_usd) as total_cost,
+                    COUNT(*) as request_count
+                FROM requests
+                {where}
+                GROUP BY provider
+                ORDER BY total_cost DESC
+            """, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_cost_by_model(self, date_from: str = "", date_to: str = "",
+                          provider: str = "", model: str = "") -> list[dict]:
+        """モデル別コスト。"""
+        where, params = self._cost_where(date_from, date_to, provider, model)
+        if where:
+            where += " AND is_cached = 0"
+        else:
+            where = "WHERE is_cached = 0"
+        with self._conn() as conn:
+            rows = conn.execute(f"""
+                SELECT
+                    model,
+                    provider,
+                    SUM(cost_usd) as total_cost,
+                    SUM(input_tokens) as total_input,
+                    SUM(output_tokens) as total_output,
+                    COUNT(*) as request_count
+                FROM requests
+                {where}
+                GROUP BY model
+                ORDER BY total_cost DESC
+            """, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_session_costs(self, limit: int = 20) -> list[dict]:
+        """セッション別コスト集計。"""
+        with self._conn() as conn:
+            rows = conn.execute("""
+                SELECT
+                    s.id, s.name, s.created_at,
+                    s.total_cost_usd, s.step_count,
+                    SUM(CASE WHEN r.is_cached = 1 THEN 1 ELSE 0 END) as cached_count
+                FROM sessions s
+                LEFT JOIN requests r ON s.id = r.session_id
+                GROUP BY s.id
+                ORDER BY s.last_accessed DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_sessions_for_comparison(self) -> list[dict]:
+        """比較用セッション一覧（2件以上のステップがあるもの）。"""
+        with self._conn() as conn:
+            rows = conn.execute("""
+                SELECT id, name, created_at, total_cost_usd, step_count
+                FROM sessions
+                WHERE step_count >= 1
+                ORDER BY last_accessed DESC
+                LIMIT 50
+            """).fetchall()
+        return [dict(r) for r in rows]
+
     # ── Filter helpers (used by Web UI) ─────────────────────
 
     def list_requests(

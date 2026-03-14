@@ -222,6 +222,154 @@ async def history_detail(request: Request, record_id: str):
     })
 
 
+# ── Cost page ─────────────────────────────────────────────
+
+@app.get("/costs", response_class=HTMLResponse)
+async def costs(
+    request: Request,
+    date_from: str = Query("", description="開始日 (YYYY-MM-DD)"),
+    date_to: str = Query("", description="終了日 (YYYY-MM-DD)"),
+    provider: str = Query("", description="プロバイダーでフィルタ"),
+    model: str = Query("", description="モデルでフィルタ"),
+    days: int = Query(30, ge=1, le=365, description="プリセット日数"),
+):
+    """コスト推移ダッシュボード。"""
+    from datetime import datetime as dt, timedelta
+
+    storage = get_storage()
+
+    # 日付範囲の決定: カスタム指定があればそちら優先、なければプリセット
+    if not date_from:
+        date_from = (dt.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+    if not date_to:
+        date_to = dt.utcnow().strftime("%Y-%m-%d")
+
+    # モデルがプロバイダーに属さない場合はリセット
+    if provider and model:
+        valid_models = storage.get_distinct_models(provider)
+        if model not in valid_models:
+            model = ""
+
+    filter_args = dict(date_from=date_from, date_to=date_to, provider=provider, model=model)
+
+    daily_costs = storage.get_daily_costs(**filter_args)
+    by_provider = storage.get_cost_by_provider(**filter_args)
+    by_model = storage.get_cost_by_model(**filter_args)
+    session_costs = storage.get_session_costs(limit=20)
+    daily_cost = storage.get_daily_cost()
+    providers = storage.get_distinct_providers()
+    models = storage.get_distinct_models(provider)
+
+    # Chart.js用データ
+    chart_labels = [d["date"] for d in daily_costs]
+    chart_costs = [round(d["total_cost"], 6) for d in daily_costs]
+    chart_requests = [d["request_count"] for d in daily_costs]
+    chart_cached = [d["cached_count"] for d in daily_costs]
+
+    total_cost = sum(d["total_cost"] for d in daily_costs)
+    total_requests = sum(d["request_count"] for d in daily_costs)
+    total_cached = sum(d["cached_count"] for d in daily_costs)
+    cache_rate = (total_cached / total_requests * 100) if total_requests > 0 else 0
+
+    return templates.TemplateResponse("costs.html", {
+        "request": request,
+        "page_name": "costs",
+        "daily_cost": daily_cost,
+        "date_from": date_from,
+        "date_to": date_to,
+        "days": days,
+        "provider": provider,
+        "model": model,
+        "providers": providers,
+        "models": models,
+        # プリセット用日付
+        "today": dt.utcnow().strftime("%Y-%m-%d"),
+        "yesterday": (dt.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d"),
+        "chart_labels": json.dumps(chart_labels),
+        "chart_costs": json.dumps(chart_costs),
+        "chart_requests": json.dumps(chart_requests),
+        "chart_cached": json.dumps(chart_cached),
+        "by_provider": by_provider,
+        "by_model": by_model,
+        "session_costs": session_costs,
+        "total_cost": total_cost,
+        "total_requests": total_requests,
+        "total_cached": total_cached,
+        "cache_rate": cache_rate,
+    })
+
+
+# ── Session comparison page ───────────────────────────────
+
+@app.get("/sessions", response_class=HTMLResponse)
+async def sessions_page(
+    request: Request,
+    a: str = Query("", description="セッションA"),
+    b: str = Query("", description="セッションB"),
+):
+    """セッション比較。"""
+    storage = get_storage()
+    available = storage.get_sessions_for_comparison()
+    daily_cost = storage.get_daily_cost()
+
+    session_a = None
+    session_b = None
+    records_a = []
+    records_b = []
+
+    if a:
+        session_a = storage.get_session(a)
+        if session_a:
+            records_a = storage.get_requests_by_session(a)
+    if b:
+        session_b = storage.get_session(b)
+        if session_b:
+            records_b = storage.get_requests_by_session(b)
+
+    # 比較用サマリー
+    def summarize(records):
+        if not records:
+            return {}
+        total_cost = sum(r.cost_usd for r in records)
+        total_input = sum(r.input_tokens for r in records)
+        total_output = sum(r.output_tokens for r in records)
+        cached = sum(1 for r in records if r.is_cached)
+        models = list(set(r.model for r in records))
+        return {
+            "total_cost": total_cost,
+            "total_input": total_input,
+            "total_output": total_output,
+            "total_tokens": total_input + total_output,
+            "steps": len(records),
+            "cached": cached,
+            "models": models,
+            "avg_cost": total_cost / len(records) if records else 0,
+        }
+
+    # enriched records with previews
+    def enrich(records):
+        return [{
+            "record": r,
+            "prompt_preview": extract_prompt_preview(r.request_body, max_len=80),
+            "response_preview": extract_response_preview(r.response_body, max_len=80),
+        } for r in records]
+
+    return templates.TemplateResponse("sessions.html", {
+        "request": request,
+        "page_name": "sessions",
+        "daily_cost": daily_cost,
+        "available": available,
+        "a": a,
+        "b": b,
+        "session_a": session_a,
+        "session_b": session_b,
+        "records_a": enrich(records_a),
+        "records_b": enrich(records_b),
+        "summary_a": summarize(records_a),
+        "summary_b": summarize(records_b),
+    })
+
+
 # ── API endpoints (for future AJAX) ─────────────────────────
 
 @app.get("/api/stats")
