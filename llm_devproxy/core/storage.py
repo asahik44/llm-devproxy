@@ -255,6 +255,89 @@ class Storage:
                 WHERE timestamp < ? AND response_body != '{"compressed": true}'
             """, (cutoff,))
 
+    # ── Filter helpers (used by Web UI) ─────────────────────
+
+    def list_requests(
+        self,
+        q: str = "",
+        provider: str = "",
+        model: str = "",
+        session_id: str = "",
+        sort_by: str = "timestamp",
+        sort_order: str = "desc",
+        limit: int = 200,
+        offset: int = 0,
+    ) -> tuple[list[RequestRecord], int]:
+        """フィルタ+ソート付きリクエスト一覧。(records, total_count) を返す。"""
+        conditions = []
+        params: list = []
+
+        if q:
+            conditions.append("request_body LIKE ?")
+            params.append(f"%{q}%")
+        if provider:
+            conditions.append("provider = ?")
+            params.append(provider)
+        if model:
+            conditions.append("model = ?")
+            params.append(model)
+        if session_id:
+            conditions.append("session_id = ?")
+            params.append(session_id)
+
+        where = ""
+        if conditions:
+            where = "WHERE " + " AND ".join(conditions)
+
+        # ソートカラムのホワイトリスト（SQLインジェクション防止）
+        allowed_sort = {
+            "timestamp", "provider", "model",
+            "input_tokens", "output_tokens", "cost_usd",
+        }
+        if sort_by not in allowed_sort:
+            sort_by = "timestamp"
+        if sort_order not in ("asc", "desc"):
+            sort_order = "desc"
+
+        order = f"ORDER BY {sort_by} {sort_order.upper()}"
+
+        with self._conn() as conn:
+            # 総件数
+            count_row = conn.execute(
+                f"SELECT COUNT(*) as cnt FROM requests {where}", params
+            ).fetchone()
+            total = count_row["cnt"]
+
+            # レコード取得
+            rows = conn.execute(
+                f"SELECT * FROM requests {where} {order} LIMIT ? OFFSET ?",
+                params + [limit, offset]
+            ).fetchall()
+
+        return [self._row_to_request(r) for r in rows], total
+
+    def get_distinct_providers(self) -> list[str]:
+        """DBに存在するプロバイダー一覧を返す。"""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT provider FROM requests ORDER BY provider"
+            ).fetchall()
+        return [r["provider"] for r in rows]
+
+    def get_distinct_models(self, provider: str = "") -> list[str]:
+        """DBに存在するモデル一覧を返す。providerで絞り込み可能。"""
+        with self._conn() as conn:
+            if provider:
+                rows = conn.execute(
+                    "SELECT DISTINCT model FROM requests WHERE provider = ? ORDER BY model",
+                    (provider,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT DISTINCT model FROM requests ORDER BY model"
+                ).fetchall()
+        return [r["model"] for r in rows]
+
     # ── Generic SQL helpers (used by semantic cache) ─────────
 
     def execute_sql(self, sql: str, params: tuple = ()) -> None:

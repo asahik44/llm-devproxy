@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}履歴 - llm-devproxy{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>リクエスト履歴 <span class="count">{{ total }} 件</span></h2>
+    </div>
+</div>
+
+<!-- Filters -->
+<form class="filters" method="get" action="/history">
+    <input type="search" name="q" value="{{ q }}" placeholder="キーワードで検索..." />
+
+    <select name="provider" onchange="this.form.submit()">
+        <option value="">全プロバイダー</option>
+        {% for p in providers %}
+        <option value="{{ p }}" {% if provider == p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+    </select>
+
+    <select name="model" onchange="this.form.submit()">
+        <option value="">全モデル</option>
+        {% for m in models %}
+        <option value="{{ m }}" {% if model == m %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+    </select>
+
+    <select name="session_id" onchange="this.form.submit()">
+        <option value="">全セッション</option>
+        {% for s in sessions %}
+        <option value="{{ s.id }}" {% if session_id == s.id %}selected{% endif %}>
+            {{ s.name }} (${{ "%.4f"|format(s.total_cost_usd) }})
+        </option>
+        {% endfor %}
+    </select>
+
+    <button type="submit" class="btn">検索</button>
+
+    {% if q or provider or model or session_id %}
+    <a href="/history" class="btn btn-ghost">クリア</a>
+    {% endif %}
+</form>
+
+<!-- Table -->
+{% if records %}
+{% set base_params = "q=" ~ q ~ "&provider=" ~ provider ~ "&model=" ~ model ~ "&session_id=" ~ session_id ~ "&per_page=" ~ per_page %}
+{% macro sort_link(col, label) %}
+{% if sort_by == col %}
+    {% set next_order = "asc" if sort_order == "desc" else "desc" %}
+    {% set arrow = "▼" if sort_order == "desc" else "▲" %}
+    <a href="?{{ base_params }}&sort_by={{ col }}&sort_order={{ next_order }}&page=1" class="sort-link active">{{ label }} {{ arrow }}</a>
+{% else %}
+    <a href="?{{ base_params }}&sort_by={{ col }}&sort_order=desc&page=1" class="sort-link">{{ label }}</a>
+{% endif %}
+{% endmacro %}
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>{{ sort_link("timestamp", "Time") }}</th>
+                <th>{{ sort_link("provider", "Provider") }}</th>
+                <th>{{ sort_link("model", "Model") }}</th>
+                <th>Prompt</th>
+                <th>{{ sort_link("input_tokens", "Input") }}</th>
+                <th>{{ sort_link("output_tokens", "Output") }}</th>
+                <th>{{ sort_link("cost_usd", "Cost") }}</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in records %}
+            <tr onclick="window.location='/history/{{ item.record.id }}'">
+                <td class="timestamp">{{ item.record.timestamp|format_time }}</td>
+                <td>
+                    <span class="badge badge-{{ item.record.provider }}">
+                        {{ item.record.provider }}
+                    </span>
+                </td>
+                <td class="model-name">{{ item.record.model }}</td>
+                <td class="prompt-text">{{ item.prompt_preview }}</td>
+                <td class="tokens">{{ item.record.input_tokens|format_tokens }}</td>
+                <td class="tokens">{{ item.record.output_tokens|format_tokens }}</td>
+                <td class="cost {% if item.record.cost_usd == 0 %}cost-zero{% endif %}">
+                    {{ item.record.cost_usd|format_cost }}
+                </td>
+                <td>
+                    {% if item.record.is_cached %}
+                    <span class="badge badge-cached">cached</span>
+                    {% elif "cost_limited" in item.record.tags %}
+                    <span class="badge badge-mock">mock</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Pagination -->
+{% if total_pages > 1 %}
+{% set page_params = "q=" ~ q ~ "&provider=" ~ provider ~ "&model=" ~ model ~ "&session_id=" ~ session_id ~ "&sort_by=" ~ sort_by ~ "&sort_order=" ~ sort_order ~ "&per_page=" ~ per_page %}
+<div class="pagination">
+    {% if current_page > 1 %}
+    <a href="?{{ page_params }}&page={{ current_page - 1 }}">←</a>
+    {% endif %}
+
+    {% for p in range(1, total_pages + 1) %}
+        {% if p == current_page %}
+        <span class="current">{{ p }}</span>
+        {% elif p <= 3 or p > total_pages - 2 or (p >= current_page - 1 and p <= current_page + 1) %}
+        <a href="?{{ page_params }}&page={{ p }}">{{ p }}</a>
+        {% elif p == 4 or p == total_pages - 2 %}
+        <span>…</span>
+        {% endif %}
+    {% endfor %}
+
+    {% if current_page < total_pages %}
+    <a href="?{{ page_params }}&page={{ current_page + 1 }}">→</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<!-- Empty state -->
+<div class="empty">
+    <h3>リクエスト履歴がありません</h3>
+    {% if q or provider or session_id %}
+    <p>検索条件を変更してみてください。</p>
+    {% else %}
+    <p>llm-devproxy 経由でAPIを呼ぶと、ここに記録されます。</p>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}
