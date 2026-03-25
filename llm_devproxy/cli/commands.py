@@ -196,6 +196,61 @@ def web(
     run(db_path=db, host=host, port=port)
 
 
+@app.command()
+def pricing(
+    action: str = typer.Argument("show", help="show / init / reload / source"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Show pricing for a specific model"),
+):
+    """
+    Manage model pricing data.
+
+    Actions:
+        show    - Show current pricing (all models or specific model)
+        init    - Create local override file (~/.llm_devproxy/pricing.json)
+        reload  - Force reload from remote + local
+        source  - Show which pricing source is active
+
+    Examples:
+        llm-devproxy pricing show
+        llm-devproxy pricing show --model o3
+        llm-devproxy pricing init
+        llm-devproxy pricing source
+    """
+    from ..core.pricing import PricingManager, create_local_pricing_template
+    from ..core.cost_guard import BUILTIN_PRICING, _get_pricing_manager
+
+    if action == "init":
+        create_local_pricing_template()
+        return
+
+    pm = _get_pricing_manager()
+
+    if action == "source":
+        typer.echo(f"📍 Active pricing source: {pm.get_source()}")
+        return
+
+    if action == "reload":
+        pm.reload()
+        typer.echo(f"✅ Pricing reloaded. Source: {pm.get_source()}")
+        return
+
+    # show
+    if model:
+        p = pm.get(model)
+        typer.echo(f"Model: {model}")
+        typer.echo(f"  Input:     ${p['input']}/1K tokens")
+        typer.echo(f"  Output:    ${p['output']}/1K tokens")
+        reasoning = p.get('reasoning')
+        typer.echo(f"  Reasoning: {'$' + str(reasoning) + '/1K tokens' if reasoning else 'N/A'}")
+    else:
+        all_pricing = pm.get_all()
+        typer.echo(f"📋 {len(all_pricing)} models loaded (source: {pm.get_source()})\n")
+        for name, p in sorted(all_pricing.items()):
+            r = p.get('reasoning')
+            r_str = f"  reasoning=${r}" if r else ""
+            typer.echo(f"  {name:30s}  in=${p['input']:<10}  out=${p['output']:<10}{r_str}")
+
+
 def main():
     app()
 

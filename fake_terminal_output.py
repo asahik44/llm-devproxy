@@ -1,0 +1,5 @@
+print('🧠 Reasoning tokens: 4,200 (84% of output) | Output: 800 | Cost: $0.212000')
+print('⚠️  [WARNING] 高コストリクエスト: $0.2120 (model=o3, in=2,500, out=800)')
+print()
+print('🧠 Reasoning tokens: 3,600 (90% of output) | Output: 400 | Cost: $0.240000')
+print('ℹ️  [INFO] 推論トークン比率 90%: 🧠3,600 / out=400 (model=o1)')
