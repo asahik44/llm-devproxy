@@ -4,6 +4,12 @@
 {% block content %}
 <div class="page-header">
     <h2>コスト推移</h2>
+    <div style="display: flex; gap: 6px;">
+        <a href="/api/export?format=csv&provider={{ provider }}&model={{ model }}"
+           class="btn btn-ghost" style="font-size: 12px; padding: 6px 12px;">📥 CSV</a>
+        <a href="/api/export?format=json&provider={{ provider }}&model={{ model }}"
+           class="btn btn-ghost" style="font-size: 12px; padding: 6px 12px;">📥 JSON</a>
+    </div>
 </div>
 
 <!-- Filters -->
@@ -128,6 +134,11 @@
                 <td class="model-name" style="font-size: 11px;">{{ m.model }}</td>
                 <td class="cost" style="text-align: right;">${{ "%.4f"|format(m.total_cost) }}</td>
                 <td class="tokens" style="text-align: right;">{{ m.request_count }} req</td>
+                {% if m.total_reasoning and m.total_reasoning > 0 %}
+                <td class="tokens-reasoning" style="text-align: right;">🧠 {{ m.total_reasoning|format_tokens }}</td>
+                {% else %}
+                <td></td>
+                {% endif %}
             </tr>
             {% endfor %}
         </table>

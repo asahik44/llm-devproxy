@@ -51,9 +51,28 @@
             <span class="label">Output tokens</span>
             <span class="value tokens">{{ record.output_tokens|format_tokens }}</span>
         </div>
+        {% if record.reasoning_tokens > 0 %}
+        <div class="detail-row">
+            <span class="label">🧠 Reasoning tokens</span>
+            <span class="value tokens-reasoning">{{ record.reasoning_tokens|format_tokens }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Reasoning ratio</span>
+            <span class="value">
+                <div class="reasoning-bar">
+                    {% set total_out = record.output_tokens + record.reasoning_tokens %}
+                    {% set pct = (record.reasoning_tokens / total_out * 100) if total_out > 0 else 0 %}
+                    <div class="reasoning-bar-bg">
+                        <div class="reasoning-bar-fill" style="width: {{ pct }}%"></div>
+                    </div>
+                    <span class="reasoning-pct">{{ "%.0f"|format(pct) }}%</span>
+                </div>
+            </span>
+        </div>
+        {% endif %}
         <div class="detail-row">
             <span class="label">Total tokens</span>
-            <span class="value tokens">{{ (record.input_tokens + record.output_tokens)|format_tokens }}</span>
+            <span class="value tokens">{{ (record.input_tokens + record.output_tokens + record.reasoning_tokens)|format_tokens }}</span>
         </div>
         <div class="detail-row">
             <span class="label">Cost</span>

@@ -6,6 +6,12 @@
     <div>
         <h2>リクエスト履歴 <span class="count">{{ total }} 件</span></h2>
     </div>
+    <div style="display: flex; gap: 6px;">
+        <a href="/api/export?format=csv&session_id={{ session_id }}&provider={{ provider }}&model={{ model }}"
+           class="btn btn-ghost" style="font-size: 12px; padding: 6px 12px;">📥 CSV</a>
+        <a href="/api/export?format=json&session_id={{ session_id }}&provider={{ provider }}&model={{ model }}"
+           class="btn btn-ghost" style="font-size: 12px; padding: 6px 12px;">📥 JSON</a>
+    </div>
 </div>
 
 <!-- Filters -->
@@ -64,6 +70,7 @@
                 <th>Prompt</th>
                 <th>{{ sort_link("input_tokens", "Input") }}</th>
                 <th>{{ sort_link("output_tokens", "Output") }}</th>
+                <th>{{ sort_link("reasoning_tokens", "🧠 Reasoning") }}</th>
                 <th>{{ sort_link("cost_usd", "Cost") }}</th>
                 <th>Status</th>
             </tr>
@@ -81,6 +88,19 @@
                 <td class="prompt-text">{{ item.prompt_preview }}</td>
                 <td class="tokens">{{ item.record.input_tokens|format_tokens }}</td>
                 <td class="tokens">{{ item.record.output_tokens|format_tokens }}</td>
+                <td>
+                    {% if item.record.reasoning_tokens > 0 %}
+                    <span class="tokens-reasoning">{{ item.record.reasoning_tokens|format_tokens }}</span>
+                    {% set total_out = item.record.output_tokens + item.record.reasoning_tokens %}
+                    {% set pct = (item.record.reasoning_tokens / total_out * 100) if total_out > 0 else 0 %}
+                    <div class="reasoning-bar" style="margin-top:2px;">
+                        <div class="reasoning-bar-bg"><div class="reasoning-bar-fill" style="width:{{ pct }}%"></div></div>
+                        <span class="reasoning-pct">{{ "%.0f"|format(pct) }}%</span>
+                    </div>
+                    {% else %}
+                    <span class="tokens">—</span>
+                    {% endif %}
+                </td>
                 <td class="cost {% if item.record.cost_usd == 0 %}cost-zero{% endif %}">
                     {{ item.record.cost_usd|format_cost }}
                 </td>
@@ -89,6 +109,8 @@
                     <span class="badge badge-cached">cached</span>
                     {% elif "cost_limited" in item.record.tags %}
                     <span class="badge badge-mock">mock</span>
+                    {% elif item.record.reasoning_tokens > 0 %}
+                    <span class="badge badge-reasoning">🧠 reasoning</span>
                     {% endif %}
                 </td>
             </tr>

@@ -57,6 +57,12 @@
             <span class="label">Output tokens</span>
             <span class="value tokens">{{ "{:,}".format(summary_a.total_output) }}</span>
         </div>
+        {% if summary_a.total_reasoning > 0 %}
+        <div class="detail-row">
+            <span class="label">🧠 Reasoning tokens</span>
+            <span class="value tokens-reasoning">{{ "{:,}".format(summary_a.total_reasoning) }} ({{ summary_a.reasoning_pct }}%)</span>
+        </div>
+        {% endif %}
         <div class="detail-row">
             <span class="label">Cache hits</span>
             <span class="value" style="color: var(--green);">{{ summary_a.cached }}</span>
@@ -107,6 +113,12 @@
             <span class="label">Output tokens</span>
             <span class="value tokens">{{ "{:,}".format(summary_b.total_output) }}</span>
         </div>
+        {% if summary_b.total_reasoning > 0 %}
+        <div class="detail-row">
+            <span class="label">🧠 Reasoning tokens</span>
+            <span class="value tokens-reasoning">{{ "{:,}".format(summary_b.total_reasoning) }} ({{ summary_b.reasoning_pct }}%)</span>
+        </div>
+        {% endif %}
         <div class="detail-row">
             <span class="label">Cache hits</span>
             <span class="value" style="color: var(--green);">{{ summary_b.cached }}</span>

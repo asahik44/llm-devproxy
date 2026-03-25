@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import RequestRecord, Session, CostLimit
+from .models import RequestRecord, Session, CostLimit, AlertRecord
 
 
 class Storage:
@@ -59,6 +59,7 @@ class Storage:
                     response_body TEXT NOT NULL,
                     input_tokens INTEGER DEFAULT 0,
                     output_tokens INTEGER DEFAULT 0,
+                    reasoning_tokens INTEGER DEFAULT 0,
                     cost_usd REAL DEFAULT 0.0,
                     is_cached INTEGER DEFAULT 0,
                     tags TEXT DEFAULT '[]',
@@ -80,7 +81,32 @@ class Storage:
                     ON requests(prompt_hash);
                 CREATE INDEX IF NOT EXISTS idx_requests_timestamp
                     ON requests(timestamp);
+
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id TEXT PRIMARY KEY,
+                    timestamp TEXT NOT NULL,
+                    level TEXT NOT NULL DEFAULT 'warning',
+                    category TEXT NOT NULL DEFAULT '',
+                    message TEXT NOT NULL DEFAULT '',
+                    details TEXT DEFAULT '{}',
+                    acknowledged INTEGER DEFAULT 0
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_alerts_timestamp
+                    ON alerts(timestamp);
             """)
+            # v0.3.0 migration: add reasoning_tokens column if missing
+            self._migrate(conn)
+
+    def _migrate(self, conn):
+        """Apply schema migrations for backward compatibility."""
+        # Check if reasoning_tokens column exists
+        cursor = conn.execute("PRAGMA table_info(requests)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "reasoning_tokens" not in columns:
+            conn.execute(
+                "ALTER TABLE requests ADD COLUMN reasoning_tokens INTEGER DEFAULT 0"
+            )
 
     # ── Sessions ──────────────────────────────────────────────
 
@@ -143,9 +169,9 @@ class Storage:
                 (id, session_id, step_id, parent_id, branch_name,
                  timestamp, provider, model, prompt_hash,
                  request_body, response_body,
-                 input_tokens, output_tokens, cost_usd,
+                 input_tokens, output_tokens, reasoning_tokens, cost_usd,
                  is_cached, tags, memo)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 record.id, record.session_id, record.step_id,
                 record.parent_id, record.branch_name,
@@ -154,7 +180,8 @@ class Storage:
                 json.dumps(record.request_body, ensure_ascii=False),
                 json.dumps(record.response_body, ensure_ascii=False),
                 record.input_tokens, record.output_tokens,
-                record.cost_usd, int(record.is_cached),
+                record.reasoning_tokens, record.cost_usd,
+                int(record.is_cached),
                 json.dumps(record.tags, ensure_ascii=False), record.memo,
             ))
         return record
@@ -338,6 +365,7 @@ class Storage:
                     SUM(cost_usd) as total_cost,
                     SUM(input_tokens) as total_input,
                     SUM(output_tokens) as total_output,
+                    SUM(reasoning_tokens) as total_reasoning,
                     COUNT(*) as request_count
                 FROM requests
                 {where}
@@ -411,7 +439,7 @@ class Storage:
         # ソートカラムのホワイトリスト（SQLインジェクション防止）
         allowed_sort = {
             "timestamp", "provider", "model",
-            "input_tokens", "output_tokens", "cost_usd",
+            "input_tokens", "output_tokens", "reasoning_tokens", "cost_usd",
         }
         if sort_by not in allowed_sort:
             sort_by = "timestamp"
@@ -456,6 +484,70 @@ class Storage:
                     "SELECT DISTINCT model FROM requests ORDER BY model"
                 ).fetchall()
         return [r["model"] for r in rows]
+
+    # ── Alerts (v0.3.0) ──────────────────────────────────────
+
+    def save_alert(self, alert: AlertRecord) -> AlertRecord:
+        with self._conn() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO alerts
+                (id, timestamp, level, category, message, details, acknowledged)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                alert.id,
+                alert.timestamp.isoformat(),
+                alert.level,
+                alert.category,
+                alert.message,
+                json.dumps(alert.details, ensure_ascii=False),
+                int(alert.acknowledged),
+            ))
+        return alert
+
+    def get_alerts(
+        self, limit: int = 50, unacknowledged_only: bool = False
+    ) -> list[AlertRecord]:
+        with self._conn() as conn:
+            if unacknowledged_only:
+                rows = conn.execute(
+                    "SELECT * FROM alerts WHERE acknowledged = 0 ORDER BY timestamp DESC LIMIT ?",
+                    (limit,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM alerts ORDER BY timestamp DESC LIMIT ?",
+                    (limit,)
+                ).fetchall()
+        return [self._row_to_alert(r) for r in rows]
+
+    def get_unacknowledged_count(self) -> int:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM alerts WHERE acknowledged = 0"
+            ).fetchone()
+        return row["cnt"] if row else 0
+
+    def acknowledge_alert(self, alert_id: str):
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE alerts SET acknowledged = 1 WHERE id = ?",
+                (alert_id,)
+            )
+
+    def acknowledge_all_alerts(self):
+        with self._conn() as conn:
+            conn.execute("UPDATE alerts SET acknowledged = 1")
+
+    def _row_to_alert(self, row) -> AlertRecord:
+        return AlertRecord(
+            id=row["id"],
+            timestamp=datetime.fromisoformat(row["timestamp"]),
+            level=row["level"],
+            category=row["category"],
+            message=row["message"],
+            details=json.loads(row["details"]),
+            acknowledged=bool(row["acknowledged"]),
+        )
 
     # ── Generic SQL helpers (used by semantic cache) ─────────
 
@@ -509,6 +601,7 @@ class Storage:
             response_body=json.loads(row["response_body"]),
             input_tokens=row["input_tokens"],
             output_tokens=row["output_tokens"],
+            reasoning_tokens=row["reasoning_tokens"] if "reasoning_tokens" in row.keys() else 0,
             cost_usd=row["cost_usd"],
             is_cached=bool(row["is_cached"]),
             tags=json.loads(row["tags"]),

@@ -14,6 +14,10 @@ A local debug layer that solves the common pain points of LLM app development.
 - **Cache eliminates redundant costs** — same requests return from DB
 - **Prevents cost explosions** — mock responses when limit is reached
 - **Rewind like Git** — "go back to step 3 and try again" in seconds
+- **🧠 Reasoning token visibility** — o1/o3, Claude thinking, Gemini 2.5 thinking tracked and visualized
+- **🔔 Smart alerts** — cost warnings, high-spend single requests, reasoning ratio alerts
+- **📥 Export** — CSV/JSON export via CLI and Web UI
+- **🌊 Streaming support** — `stream=True` works transparently, recorded after completion
 
 ---
 
@@ -124,7 +128,62 @@ llm-devproxy rewind my_agent --step 3 --branch new_idea
 
 # Show cost stats
 llm-devproxy stats
+
+# Export to CSV/JSON (v0.3.0)
+llm-devproxy export -f csv -o requests.csv
+llm-devproxy export -f json --provider openai --model o1
+
+# Launch web dashboard (v0.3.0)
+llm-devproxy web --port 8765
 ```
+
+---
+
+## Streaming (v0.3.0)
+
+`stream=True` just works — chunks are passed through transparently, then recorded after the stream completes.
+
+```python
+# OpenAI streaming
+stream = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello"}],
+    stream=True,
+)
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="")
+
+# Anthropic streaming
+stream = client.messages.create(
+    model="claude-sonnet-4-5",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello"}],
+    stream=True,
+)
+for event in stream:
+    # events pass through as-is
+    pass
+
+# All streamed responses are automatically recorded with full token counts
+```
+
+---
+
+## Reasoning Token Tracking (v0.3.0)
+
+Reasoning tokens from o1/o3, Claude extended thinking, and Gemini 2.5 thinking are automatically tracked, costed, and visualized.
+
+```python
+# Terminal output when reasoning tokens are used:
+# 🧠 Reasoning tokens: 2,400 (83% of output) | Output: 500 | Cost: $0.034500
+
+# Access reasoning stats
+stats = proxy.engine.reasoning_stats()
+# {'total_reasoning': 2400, 'total_output': 500, 'reasoning_pct': 82.8, ...}
+```
+
+The Web UI shows reasoning tokens with visual bars on every page — history, detail, costs, and session comparison.
 
 ---
 
@@ -171,6 +230,12 @@ proxy = DevProxy(
     on_exceed="mock",             # "mock" or "block"
     cache_enabled=True,
     compress_after_days=30,
+
+    # Alert settings (v0.3.0)
+    alert_daily_threshold=0.8,    # warn at 80% of daily limit
+    alert_session_threshold=0.8,  # warn at 80% of session limit
+    alert_reasoning_ratio=0.7,    # warn if reasoning > 70% of output
+    alert_single_cost_usd=0.10,   # warn if single request > $0.10
 )
 ```
 
@@ -188,9 +253,10 @@ Nothing is sent to any external server.
 - [x] Phase 1: Cache, cost guard, auto-record everything
 - [x] Phase 2: Proxy server (OpenAI/Anthropic/Gemini compatible), CLI
 - [x] Phase 3: Rewind, branches, tags, memos
-- [ ] Phase 4: Semantic cache
-- [ ] Phase 5: Web UI (history browser, cost dashboard)
-- [ ] Phase 6: Team sharing (cloud edition)
+- [x] Phase 4: Semantic cache
+- [x] Phase 5: Web UI (history browser, cost dashboard, session comparison)
+- [x] Phase 6: Reasoning token tracking, alerts, CSV/JSON export, streaming
+- [ ] Phase 7: Team sharing (cloud edition)
 
 ---
 
@@ -205,6 +271,10 @@ LLMアプリ開発中の「あるある」をすべて解決するローカル�
 - **キャッシュで無駄なAPI代ゼロ** — 同じリクエストはDBから返す
 - **コスト爆発を防ぐ** — 上限設定でmockレスポンスを返す
 - **Gitのように巻き戻せる** — 「あのステップ3からやり直したい」が即できる
+- **🧠 推論トークン可視化** — o1/o3, Claude thinking, Gemini 2.5 thinkingを追跡・可視化
+- **🔔 スマートアラート** — コスト警告、高額リクエスト、推論トークン比率アラート
+- **📥 エクスポート** — CSV/JSONエクスポート（CLI・Web UI両対応）
+- **🌊 Streaming対応** — `stream=True` が透過的に動作、完了後に自動記録
 
 詳しい使い方は英語版をご覧ください（内容は同じです）。
 

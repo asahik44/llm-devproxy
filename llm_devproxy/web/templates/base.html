@@ -98,6 +98,21 @@
             border-right: 2px solid var(--accent);
         }
 
+        .nav-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 5px;
+            border-radius: 999px;
+            background: var(--red);
+            color: white;
+            font-size: 10px;
+            font-weight: 700;
+            margin-left: 6px;
+        }
+
         .sidebar-stats {
             padding: 16px 20px;
             border-top: 1px solid var(--border);
@@ -276,6 +291,47 @@
             color: var(--text-muted);
         }
 
+        .tokens-reasoning {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--orange);
+        }
+
+        .reasoning-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 2px;
+        }
+
+        .reasoning-bar-bg {
+            flex: 1;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            overflow: hidden;
+            max-width: 80px;
+        }
+
+        .reasoning-bar-fill {
+            height: 100%;
+            background: var(--orange);
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+
+        .reasoning-pct {
+            font-size: 10px;
+            color: var(--orange);
+            font-family: var(--mono);
+            white-space: nowrap;
+        }
+
+        .badge-reasoning {
+            background: rgba(251, 146, 60, 0.15);
+            color: var(--orange);
+        }
+
         .model-name {
             font-family: var(--mono);
             font-size: 12px;
@@ -411,7 +467,7 @@
         <aside class="sidebar">
             <div class="sidebar-logo">
                 <h1>llm-devproxy</h1>
-                <span class="version">v0.2.0</span>
+                <span class="version">v0.3.0</span>
             </div>
 
             <div class="nav-section">Navigation</div>
@@ -420,6 +476,12 @@
             </a>
             <a href="/costs" class="nav-item {% if page_name == 'costs' %}active{% endif %}">
                 💰 コスト
+            </a>
+            <a href="/alerts" class="nav-item {% if page_name == 'alerts' %}active{% endif %}">
+                🔔 アラート
+                {% if unack_count is defined and unack_count > 0 %}
+                <span class="nav-badge">{{ unack_count }}</span>
+                {% endif %}
             </a>
             <a href="/sessions" class="nav-item {% if page_name == 'sessions' %}active{% endif %}">
                 🔀 セッション比較

@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}アラート - llm-devproxy{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>アラート
+            {% if unack_count > 0 %}
+            <span class="count" style="color: var(--red);">{{ unack_count }} 件未読</span>
+            {% endif %}
+        </h2>
+    </div>
+    {% if unack_count > 0 %}
+    <button class="btn" onclick="acknowledgeAll()" id="ackAllBtn">すべて既読にする</button>
+    {% endif %}
+</div>
+
+{% if alerts %}
+<div class="alerts-list">
+    {% for alert in alerts %}
+    <div class="alert-item alert-{{ alert.level }} {% if not alert.acknowledged %}alert-unread{% endif %}"
+         id="alert-{{ alert.id }}">
+        <div class="alert-header">
+            <div class="alert-meta">
+                {% if alert.level == "critical" %}
+                <span class="alert-icon">🚨</span>
+                {% elif alert.level == "warning" %}
+                <span class="alert-icon">⚠️</span>
+                {% else %}
+                <span class="alert-icon">ℹ️</span>
+                {% endif %}
+                <span class="alert-level-badge alert-level-{{ alert.level }}">{{ alert.level }}</span>
+                <span class="alert-category">{{ alert.category }}</span>
+                <span class="alert-time">{{ alert.timestamp|format_time }}</span>
+            </div>
+            <div class="alert-actions">
+                {% if not alert.acknowledged %}
+                <button class="btn-ack" onclick="acknowledge('{{ alert.id }}')" title="既読にする">✓</button>
+                {% else %}
+                <span class="alert-acked">✓ 確認済</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="alert-message">{{ alert.message }}</div>
+        {% if alert.details %}
+        <div class="alert-details-toggle" onclick="toggleDetails('{{ alert.id }}')">
+            詳細を表示 ▼
+        </div>
+        <div class="alert-details" id="details-{{ alert.id }}" style="display: none;">
+            {% for key, value in alert.details.items() %}
+            <span class="detail-tag">{{ key }}: {{ value }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+{% else %}
+<div class="empty">
+    <h3>アラートはありません</h3>
+    <p>コスト閾値や推論トークン比率に基づいてアラートが自動生成されます。</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<style>
+    .alerts-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .alert-item {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 14px 16px;
+        transition: all 0.15s;
+    }
+
+    .alert-unread {
+        border-left: 3px solid var(--yellow);
+    }
+
+    .alert-critical.alert-unread {
+        border-left-color: var(--red);
+    }
+
+    .alert-info.alert-unread {
+        border-left-color: var(--accent);
+    }
+
+    .alert-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+    }
+
+    .alert-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .alert-icon { font-size: 14px; }
+
+    .alert-level-badge {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .alert-level-critical { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+    .alert-level-warning { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
+    .alert-level-info { background: rgba(108, 138, 255, 0.15); color: var(--accent); }
+
+    .alert-category {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-family: var(--mono);
+    }
+
+    .alert-time {
+        font-size: 11px;
+        color: var(--text-muted);
+    }
+
+    .alert-message {
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--text);
+    }
+
+    .alert-details-toggle {
+        font-size: 11px;
+        color: var(--accent);
+        cursor: pointer;
+        margin-top: 8px;
+    }
+
+    .alert-details-toggle:hover { text-decoration: underline; }
+
+    .alert-details {
+        margin-top: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .detail-tag {
+        display: inline-block;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-family: var(--mono);
+        color: var(--text-muted);
+    }
+
+    .btn-ack {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        width: 28px;
+        height: 28px;
+        border-radius: var(--radius);
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .btn-ack:hover {
+        border-color: var(--green);
+        color: var(--green);
+        background: rgba(74, 222, 128, 0.1);
+    }
+
+    .alert-acked {
+        font-size: 11px;
+        color: var(--text-muted);
+    }
+</style>
+
+<script>
+async function acknowledge(alertId) {
+    await fetch(`/alerts/acknowledge/${alertId}`, { method: 'POST' });
+    const el = document.getElementById('alert-' + alertId);
+    if (el) {
+        el.classList.remove('alert-unread');
+        const btn = el.querySelector('.btn-ack');
+        if (btn) btn.outerHTML = '<span class="alert-acked">✓ 確認済</span>';
+    }
+    updateBadge();
+}
+
+async function acknowledgeAll() {
+    await fetch('/alerts/acknowledge-all', { method: 'POST' });
+    document.querySelectorAll('.alert-unread').forEach(el => {
+        el.classList.remove('alert-unread');
+    });
+    document.querySelectorAll('.btn-ack').forEach(btn => {
+        btn.outerHTML = '<span class="alert-acked">✓ 確認済</span>';
+    });
+    const ackBtn = document.getElementById('ackAllBtn');
+    if (ackBtn) ackBtn.style.display = 'none';
+    updateBadge();
+}
+
+function updateBadge() {
+    const badges = document.querySelectorAll('.nav-badge');
+    badges.forEach(b => b.style.display = 'none');
+    const countEl = document.querySelector('.count');
+    if (countEl) countEl.textContent = '';
+}
+
+function toggleDetails(alertId) {
+    const el = document.getElementById('details-' + alertId);
+    if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+}
+</script>
+{% endblock %}

@@ -144,6 +144,58 @@ def memo_cmd(
     typer.echo(f"✅ Memo added to {request_id[:8]}...")
 
 
+@app.command()
+def export(
+    format: str = typer.Option("csv", "--format", "-f", help="Export format: csv / json"),
+    output: str = typer.Option("", "--output", "-o", help="Output file path (default: stdout)"),
+    session_id: str = typer.Option("", "--session", "-s", help="Filter by session ID"),
+    provider: str = typer.Option("", "--provider", "-p", help="Filter by provider"),
+    model: str = typer.Option("", "--model", "-m", help="Filter by model"),
+    limit: int = typer.Option(0, "--limit", "-n", help="Max records (0=all)"),
+    db: str = typer.Option(".llm_devproxy.db", help="Database path"),
+):
+    """
+    Export recorded requests to CSV or JSON.
+
+    Examples:
+        llm-devproxy export -f csv -o requests.csv
+        llm-devproxy export -f json --session my_agent
+        llm-devproxy export -f csv --provider openai --model o1
+    """
+    from ..core.export import export_requests
+
+    proxy = _get_proxy(db)
+    storage = proxy.engine.storage
+
+    records, _ = storage.list_requests(
+        provider=provider,
+        model=model,
+        session_id=session_id,
+        limit=limit if limit > 0 else 10000,
+        offset=0,
+    )
+
+    result = export_requests(records, format=format)
+
+    if output:
+        with open(output, "w", encoding="utf-8") as f:
+            f.write(result)
+        typer.echo(f"✅ Exported {len(records)} records to {output}")
+    else:
+        typer.echo(result)
+
+
+@app.command()
+def web(
+    host: str = typer.Option("127.0.0.1", help="Host to bind"),
+    port: int = typer.Option(8765, help="Port to listen on"),
+    db: str = typer.Option(".llm_devproxy.db", help="Database path"),
+):
+    """Launch the web dashboard."""
+    from ..web.app import run
+    run(db_path=db, host=host, port=port)
+
+
 def main():
     app()
 

@@ -119,6 +119,13 @@ templates.env.filters["format_time"] = format_time
 templates.env.filters["truncate"] = truncate
 
 
+def has_reasoning(record) -> bool:
+    """推論トークンを使っているか判定"""
+    return getattr(record, "reasoning_tokens", 0) > 0
+
+templates.env.tests["reasoning"] = has_reasoning
+
+
 # ── Routes ───────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -133,6 +140,7 @@ async def index(request: Request):
         "page": "history",
         "sessions": sessions,
         "daily_cost": daily_cost,
+        "unack_count": storage.get_unacknowledged_count(),
     })
 
 
@@ -187,6 +195,7 @@ async def history(
         "records": enriched,
         "sessions": sessions,
         "daily_cost": daily_cost,
+        "unack_count": storage.get_unacknowledged_count(),
         "q": q,
         "session_id": session_id,
         "provider": provider,
@@ -215,6 +224,7 @@ async def history_detail(request: Request, record_id: str):
         "page_name": "detail",
         "record": record,
         "daily_cost": storage.get_daily_cost(),
+        "unack_count": storage.get_unacknowledged_count(),
         "prompt_preview": extract_prompt_preview(record.request_body),
         "response_preview": extract_response_preview(record.response_body),
         "request_json": json.dumps(record.request_body, indent=2, ensure_ascii=False),
@@ -275,6 +285,7 @@ async def costs(
         "request": request,
         "page_name": "costs",
         "daily_cost": daily_cost,
+        "unack_count": storage.get_unacknowledged_count(),
         "date_from": date_from,
         "date_to": date_to,
         "days": days,
@@ -333,13 +344,20 @@ async def sessions_page(
         total_cost = sum(r.cost_usd for r in records)
         total_input = sum(r.input_tokens for r in records)
         total_output = sum(r.output_tokens for r in records)
+        total_reasoning = sum(r.reasoning_tokens for r in records)
         cached = sum(1 for r in records if r.is_cached)
         models = list(set(r.model for r in records))
+        total_all_output = total_output + total_reasoning
+        reasoning_pct = (
+            total_reasoning / total_all_output * 100 if total_all_output else 0
+        )
         return {
             "total_cost": total_cost,
             "total_input": total_input,
             "total_output": total_output,
-            "total_tokens": total_input + total_output,
+            "total_reasoning": total_reasoning,
+            "reasoning_pct": round(reasoning_pct, 1),
+            "total_tokens": total_input + total_output + total_reasoning,
             "steps": len(records),
             "cached": cached,
             "models": models,
@@ -358,6 +376,7 @@ async def sessions_page(
         "request": request,
         "page_name": "sessions",
         "daily_cost": daily_cost,
+        "unack_count": storage.get_unacknowledged_count(),
         "available": available,
         "a": a,
         "b": b,
@@ -372,18 +391,89 @@ async def sessions_page(
 
 # ── API endpoints (for future AJAX) ─────────────────────────
 
+@app.get("/alerts", response_class=HTMLResponse)
+async def alerts_page(request: Request):
+    """アラート一覧。"""
+    storage = get_storage()
+    alerts = storage.get_alerts(limit=100)
+    unack_count = storage.get_unacknowledged_count()
+    daily_cost = storage.get_daily_cost()
+
+    return templates.TemplateResponse("alerts.html", {
+        "request": request,
+        "page_name": "alerts",
+        "alerts": alerts,
+        "unack_count": unack_count,
+        "daily_cost": daily_cost,
+    })
+
+
+@app.post("/alerts/acknowledge/{alert_id}")
+async def acknowledge_alert(alert_id: str):
+    storage = get_storage()
+    storage.acknowledge_alert(alert_id)
+    return {"ok": True}
+
+
+@app.post("/alerts/acknowledge-all")
+async def acknowledge_all():
+    storage = get_storage()
+    storage.acknowledge_all_alerts()
+    return {"ok": True}
+
+
 @app.get("/api/stats")
 async def api_stats():
     storage = get_storage()
     daily_cost = storage.get_daily_cost()
     sessions = storage.list_sessions(limit=5)
+    unack_count = storage.get_unacknowledged_count()
     return {
         "daily_cost": daily_cost,
+        "unacknowledged_alerts": unack_count,
         "recent_sessions": [
             {"id": s.id, "name": s.name, "cost": s.total_cost_usd, "steps": s.step_count}
             for s in sessions
         ],
     }
+
+
+@app.get("/api/export")
+async def api_export(
+    format: str = Query("csv", description="csv or json"),
+    session_id: str = Query("", description="Filter by session"),
+    provider: str = Query("", description="Filter by provider"),
+    model: str = Query("", description="Filter by model"),
+    include_body: bool = Query(False, description="Include full request/response body"),
+    limit: int = Query(0, ge=0, description="Max records (0=all)"),
+):
+    """Export recorded requests as CSV or JSON download."""
+    from fastapi.responses import Response
+    from llm_devproxy.core.export import export_requests
+
+    storage = get_storage()
+    records, _ = storage.list_requests(
+        provider=provider,
+        model=model,
+        session_id=session_id,
+        limit=limit if limit > 0 else 10000,
+        offset=0,
+    )
+
+    result = export_requests(records, format=format, include_body=include_body)
+
+    if format == "json":
+        return Response(
+            content=result,
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=llm_devproxy_export.json"},
+        )
+    else:
+        return Response(
+            content=result,
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=llm_devproxy_export.csv"},
+        )
 
 
 # ── Runner ───────────────────────────────────────────────────

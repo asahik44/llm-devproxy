@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 
 from .cache import CacheManager
 from .cost_guard import CostGuard, estimate_cost
+from .alerts import AlertManager
 from .models import ProxyConfig, RequestRecord, Session
 from .storage import Storage
 
@@ -19,6 +20,7 @@ class Engine:
         self.storage = Storage(self.config.db_path)
         self.cache = CacheManager(self.storage, self.config, self.config.cache_enabled)
         self.cost_guard = CostGuard(self.config, self.storage)
+        self.alert_manager = AlertManager(self.config, self.storage)
 
         # 現在のセッション
         self._current_session: Optional[Session] = None
@@ -61,7 +63,7 @@ class Engine:
         provider: str,
         model: str,
         request_body: dict,
-        real_api_fn: Callable[[], tuple[dict, int, int]],
+        real_api_fn: Callable[[], tuple],
         session_id: Optional[str] = None,
         branch_name: str = "main",
     ) -> tuple[dict, RequestRecord]:
@@ -73,7 +75,9 @@ class Engine:
             model: モデル名
             request_body: APIリクエストのボディ
             real_api_fn: 実際のAPIを呼ぶ関数。
-                         (response_body, input_tokens, output_tokens) を返す
+                         (response_body, input_tokens, output_tokens) または
+                         (response_body, input_tokens, output_tokens, reasoning_tokens)
+                         を返す
             session_id: セッションID（省略時は現在のセッション）
             branch_name: rewind後の別試みで使うブランチ名
 
@@ -116,9 +120,15 @@ class Engine:
                 raise CostLimitExceededError(reason)
             return response_body, record
 
-        # 3. 実APIを呼ぶ
-        response_body, input_tokens, output_tokens = real_api_fn()
-        cost = estimate_cost(model, input_tokens, output_tokens)
+        # 3. 実APIを呼ぶ（3-tuple or 4-tuple対応）
+        result = real_api_fn()
+        if len(result) == 4:
+            response_body, input_tokens, output_tokens, reasoning_tokens = result
+        else:
+            response_body, input_tokens, output_tokens = result
+            reasoning_tokens = 0
+
+        cost = estimate_cost(model, input_tokens, output_tokens, reasoning_tokens)
 
         # 4. 自動記録（これがコアコンセプト）
         record = RequestRecord(
@@ -133,6 +143,7 @@ class Engine:
             response_body=response_body,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            reasoning_tokens=reasoning_tokens,
             cost_usd=cost,
             is_cached=False,
         )
@@ -142,13 +153,18 @@ class Engine:
         # 4.5. セマンティックキャッシュ用embeddingを保存
         self.cache.store_semantic(record, request_body)
 
-        # 5. コスト警告チェック
-        warned, ratio = self.cost_guard.warning_threshold(session.id)
-        if warned:
+        # 5. アラートチェック（v0.3.0）
+        self.alert_manager.evaluate(record, session.id)
+
+        # 5.5. 推論トークン可視化（使っている場合のみ表示）
+        if reasoning_tokens > 0:
+            total_output = output_tokens + reasoning_tokens
+            reasoning_pct = reasoning_tokens / total_output * 100 if total_output else 0
             print(
-                f"⚠️  Cost warning: {ratio:.0%} of daily limit used "
-                f"(${self.storage.get_daily_cost():.4f} / "
-                f"${self.config.daily_limit_usd})"
+                f"🧠 Reasoning tokens: {reasoning_tokens:,} "
+                f"({reasoning_pct:.0f}% of output) | "
+                f"Output: {output_tokens:,} | "
+                f"Cost: ${cost:.6f}"
             )
 
         return response_body, record
@@ -245,6 +261,27 @@ class Engine:
             "session_cost_usd": session_cost,
             "current_session": self._current_session.name if self._current_session else None,
             "current_step": self._step_counter,
+        }
+
+    def reasoning_stats(self, session_id: Optional[str] = None) -> dict:
+        """推論トークンの使用状況サマリー"""
+        sid = session_id or (self._current_session.id if self._current_session else None)
+        if not sid:
+            return {"total_reasoning": 0, "total_output": 0, "reasoning_pct": 0}
+
+        records = self.storage.get_requests_by_session(sid)
+        total_reasoning = sum(r.reasoning_tokens for r in records)
+        total_output = sum(r.output_tokens for r in records)
+        total_all_output = total_output + total_reasoning
+        pct = total_reasoning / total_all_output * 100 if total_all_output else 0
+        return {
+            "total_reasoning": total_reasoning,
+            "total_output": total_output,
+            "reasoning_pct": round(pct, 1),
+            "reasoning_cost_est": sum(
+                r.reasoning_tokens / 1000 * 0.015  # rough estimate
+                for r in records if r.reasoning_tokens > 0
+            ),
         }
 
 

@@ -29,6 +29,7 @@ class RequestRecord:
     # コスト情報
     input_tokens: int = 0
     output_tokens: int = 0
+    reasoning_tokens: int = 0            # 推論トークン（o1/o3, extended thinking等）
     cost_usd: float = 0.0
     is_cached: bool = False              # キャッシュから返したか
 
@@ -96,3 +97,21 @@ class ProxyConfig:
 
     # モック設定
     mock_response: str = "[MOCK] Cost limit reached. This is a mock response."
+
+    # アラート設定 (v0.3.0)
+    alert_daily_threshold: float = 0.8   # デイリー上限の何%で警告 (0.0〜1.0)
+    alert_session_threshold: float = 0.8 # セッション上限の何%で警告
+    alert_reasoning_ratio: float = 0.7   # 推論トークンが出力の何%を超えたら警告
+    alert_single_cost_usd: float = 0.10  # 1リクエストがこの額を超えたら警告
+
+
+@dataclass
+class AlertRecord:
+    """アラート履歴。"""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    level: str = "warning"               # "info" / "warning" / "critical"
+    category: str = ""                   # "cost_daily" / "cost_session" / "cost_single" / "reasoning_ratio"
+    message: str = ""
+    details: dict = field(default_factory=dict)
+    acknowledged: bool = False           # ユーザーが確認済みか
