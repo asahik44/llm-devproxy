@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llm-devproxy"
-version = "0.3.1"
+version = "0.3.2"
 description = "LLM development debug layer - every API call recorded, nothing lost. Reasoning tokens, alerts, export, streaming."
 readme = "README.md"
 license = { text = "MIT" }

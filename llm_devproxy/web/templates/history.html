@@ -7,9 +7,9 @@
         <h2>リクエスト履歴 <span class="count">{{ total }} 件</span></h2>
     </div>
     <div style="display: flex; gap: 6px;">
-        <a href="/api/export?format=csv&session_id={{ session_id }}&provider={{ provider }}&model={{ model }}"
+        <a href="/api/export?format=csv&session_id={{ session_id }}&provider={{ provider }}&model={{ model }}&date_from={{ date_from }}&date_to={{ date_to }}"
            class="btn btn-ghost" style="font-size: 12px; padding: 6px 12px;">📥 CSV</a>
-        <a href="/api/export?format=json&session_id={{ session_id }}&provider={{ provider }}&model={{ model }}"
+        <a href="/api/export?format=json&session_id={{ session_id }}&provider={{ provider }}&model={{ model }}&date_from={{ date_from }}&date_to={{ date_to }}"
            class="btn btn-ghost" style="font-size: 12px; padding: 6px 12px;">📥 JSON</a>
     </div>
 </div>
@@ -17,6 +17,14 @@
 <!-- Filters -->
 <form class="filters" method="get" action="/history">
     <input type="search" name="q" value="{{ q }}" placeholder="キーワードで検索..." />
+
+    <input type="date" name="date_from" value="{{ date_from }}"
+           style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: var(--radius); font-size: 13px;"
+           onchange="this.form.submit()">
+    <span style="color: var(--text-muted); padding: 0 2px;">〜</span>
+    <input type="date" name="date_to" value="{{ date_to }}"
+           style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: var(--radius); font-size: 13px;"
+           onchange="this.form.submit()">
 
     <select name="provider" onchange="this.form.submit()">
         <option value="">全プロバイダー</option>
@@ -43,14 +51,14 @@
 
     <button type="submit" class="btn">検索</button>
 
-    {% if q or provider or model or session_id %}
+    {% if q or provider or model or session_id or date_from or date_to %}
     <a href="/history" class="btn btn-ghost">クリア</a>
     {% endif %}
 </form>
 
 <!-- Table -->
 {% if records %}
-{% set base_params = "q=" ~ q ~ "&provider=" ~ provider ~ "&model=" ~ model ~ "&session_id=" ~ session_id ~ "&per_page=" ~ per_page %}
+{% set base_params = "q=" ~ q ~ "&provider=" ~ provider ~ "&model=" ~ model ~ "&session_id=" ~ session_id ~ "&date_from=" ~ date_from ~ "&date_to=" ~ date_to ~ "&per_page=" ~ per_page %}
 {% macro sort_link(col, label) %}
 {% if sort_by == col %}
     {% set next_order = "asc" if sort_order == "desc" else "desc" %}
@@ -121,7 +129,7 @@
 
 <!-- Pagination -->
 {% if total_pages > 1 %}
-{% set page_params = "q=" ~ q ~ "&provider=" ~ provider ~ "&model=" ~ model ~ "&session_id=" ~ session_id ~ "&sort_by=" ~ sort_by ~ "&sort_order=" ~ sort_order ~ "&per_page=" ~ per_page %}
+{% set page_params = "q=" ~ q ~ "&provider=" ~ provider ~ "&model=" ~ model ~ "&session_id=" ~ session_id ~ "&date_from=" ~ date_from ~ "&date_to=" ~ date_to ~ "&sort_by=" ~ sort_by ~ "&sort_order=" ~ sort_order ~ "&per_page=" ~ per_page %}
 <div class="pagination">
     {% if current_page > 1 %}
     <a href="?{{ page_params }}&page={{ current_page - 1 }}">←</a>

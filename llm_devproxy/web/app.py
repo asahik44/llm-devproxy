@@ -151,6 +151,8 @@ async def history(
     session_id: str = Query("", description="セッションでフィルタ"),
     provider: str = Query("", description="プロバイダーでフィルタ"),
     model: str = Query("", description="モデルでフィルタ"),
+    date_from: str = Query("", description="開始日 (YYYY-MM-DD)"),
+    date_to: str = Query("", description="終了日 (YYYY-MM-DD)"),
     sort_by: str = Query("timestamp", description="ソートカラム"),
     sort_order: str = Query("desc", description="ソート順"),
     page: int = Query(1, ge=1, description="ページ番号"),
@@ -169,7 +171,9 @@ async def history(
     offset = (page - 1) * per_page
     records, total = storage.list_requests(
         q=q, provider=provider, model=model,
-        session_id=session_id, sort_by=sort_by, sort_order=sort_order,
+        session_id=session_id,
+        date_from=date_from, date_to=date_to,
+        sort_by=sort_by, sort_order=sort_order,
         limit=per_page, offset=offset,
     )
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -200,6 +204,8 @@ async def history(
         "session_id": session_id,
         "provider": provider,
         "model": model,
+        "date_from": date_from,
+        "date_to": date_to,
         "sort_by": sort_by,
         "sort_order": sort_order,
         "providers": providers,
@@ -444,6 +450,8 @@ async def api_export(
     session_id: str = Query("", description="Filter by session"),
     provider: str = Query("", description="Filter by provider"),
     model: str = Query("", description="Filter by model"),
+    date_from: str = Query("", description="Start date (YYYY-MM-DD)"),
+    date_to: str = Query("", description="End date (YYYY-MM-DD)"),
     include_body: bool = Query(False, description="Include full request/response body"),
     limit: int = Query(0, ge=0, description="Max records (0=all)"),
 ):
@@ -456,6 +464,8 @@ async def api_export(
         provider=provider,
         model=model,
         session_id=session_id,
+        date_from=date_from,
+        date_to=date_to,
         limit=limit if limit > 0 else 10000,
         offset=0,
     )

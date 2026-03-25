@@ -410,6 +410,8 @@ class Storage:
         provider: str = "",
         model: str = "",
         session_id: str = "",
+        date_from: str = "",
+        date_to: str = "",
         sort_by: str = "timestamp",
         sort_order: str = "desc",
         limit: int = 200,
@@ -431,6 +433,12 @@ class Storage:
         if session_id:
             conditions.append("session_id = ?")
             params.append(session_id)
+        if date_from:
+            conditions.append("timestamp >= ?")
+            params.append(date_from + "T00:00:00")
+        if date_to:
+            conditions.append("timestamp <= ?")
+            params.append(date_to + "T23:59:59")
 
         where = ""
         if conditions:
