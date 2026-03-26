@@ -199,6 +199,22 @@ class DevProxyCallbackHandler(BaseCallbackHandler):
         input_tokens = token_usage.get("prompt_tokens", 0) or token_usage.get("input_tokens", 0) or 0
         output_tokens = token_usage.get("completion_tokens", 0) or token_usage.get("output_tokens", 0) or 0
 
+        # Google GenAI format: usage_metadata with different key names
+        usage_metadata = llm_output.get("usage_metadata", {})
+        if usage_metadata and not input_tokens:
+            input_tokens = usage_metadata.get("prompt_token_count", 0) or 0
+            output_tokens = usage_metadata.get("candidates_token_count", 0) or 0
+
+        # Also check generation_info on individual generations
+        if not input_tokens and response.generations:
+            for gen_list in response.generations:
+                for gen in gen_list:
+                    gen_info = getattr(gen, "generation_info", {}) or {}
+                    usage_meta = gen_info.get("usage_metadata", {})
+                    if usage_meta:
+                        input_tokens = input_tokens or usage_meta.get("prompt_token_count", 0) or 0
+                        output_tokens = output_tokens or usage_meta.get("candidates_token_count", 0) or 0
+
         # Reasoning tokens
         reasoning_tokens = 0
         if response.generations:
@@ -206,7 +222,18 @@ class DevProxyCallbackHandler(BaseCallbackHandler):
                 for gen in gen_list:
                     reasoning_tokens += _extract_reasoning_tokens(gen)
 
-        # Also check in token_usage directly
+        # Google GenAI: thoughts_token_count
+        if not reasoning_tokens and usage_metadata:
+            reasoning_tokens = usage_metadata.get("thoughts_token_count", 0) or 0
+        if not reasoning_tokens and response.generations:
+            for gen_list in response.generations:
+                for gen in gen_list:
+                    gen_info = getattr(gen, "generation_info", {}) or {}
+                    usage_meta = gen_info.get("usage_metadata", {})
+                    if usage_meta:
+                        reasoning_tokens = reasoning_tokens or usage_meta.get("thoughts_token_count", 0) or 0
+
+        # Also check in token_usage directly (OpenAI format)
         if not reasoning_tokens:
             details = token_usage.get("completion_tokens_details", {})
             if isinstance(details, dict):
