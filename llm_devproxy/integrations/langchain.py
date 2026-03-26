@@ -264,9 +264,7 @@ class DevProxyCallbackHandler(BaseCallbackHandler):
         self._storage.update_session_stats(self._session.id, cost)
 
         # Alert check
-        alerts = self._alert_manager.check(
-            self._session.id, model, cost, input_tokens, output_tokens, reasoning_tokens,
-        )
+        alerts = self._alert_manager.evaluate(record, self._session.id)
 
         # Terminal output
         if self.verbose:
@@ -284,9 +282,6 @@ class DevProxyCallbackHandler(BaseCallbackHandler):
                     f"({ratio:.0f}% of output) | "
                     f"Output: {output_tokens:,} | Cost: ${cost:.6f}"
                 )
-            for alert in alerts:
-                level_icon = {"critical": "🚨", "warning": "⚠️ ", "info": "ℹ️ "}.get(alert.level, "")
-                print(f"{level_icon} [{alert.level.upper()}] {alert.message}")
 
     def on_llm_error(
         self,

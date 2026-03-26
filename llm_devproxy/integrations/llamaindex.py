@@ -202,9 +202,7 @@ class DevProxyCallbackHandler(BaseCallbackHandler):
         self._storage.update_session_stats(self._session.id, cost)
 
         # Alerts
-        alerts = self._alert_manager.check(
-            self._session.id, model, cost, input_tokens, output_tokens, reasoning_tokens,
-        )
+        alerts = self._alert_manager.evaluate(record, self._session.id)
 
         if self.verbose:
             elapsed = time.time() - start_info["start_time"]
@@ -220,9 +218,6 @@ class DevProxyCallbackHandler(BaseCallbackHandler):
                     f"🧠 Reasoning tokens: {reasoning_tokens:,} "
                     f"({ratio:.0f}% of output)"
                 )
-            for alert in alerts:
-                level_icon = {"critical": "🚨", "warning": "⚠️ ", "info": "ℹ️ "}.get(alert.level, "")
-                print(f"{level_icon} [{alert.level.upper()}] {alert.message}")
 
     def start_trace(self, trace_id: Optional[str] = None) -> None:
         """Required by BaseCallbackHandler."""
