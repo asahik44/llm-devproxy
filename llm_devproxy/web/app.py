@@ -269,6 +269,7 @@ async def costs(
     filter_args = dict(date_from=date_from, date_to=date_to, provider=provider, model=model)
 
     daily_costs = storage.get_daily_costs(**filter_args)
+    daily_reasoning = storage.get_daily_reasoning_costs(**filter_args)
     by_provider = storage.get_cost_by_provider(**filter_args)
     by_model = storage.get_cost_by_model(**filter_args)
     session_costs = storage.get_session_costs(limit=20)
@@ -282,10 +283,17 @@ async def costs(
     chart_requests = [d["request_count"] for d in daily_costs]
     chart_cached = [d["cached_count"] for d in daily_costs]
 
+    # 推論トークンチャート用データ
+    reasoning_labels = [d["date"] for d in daily_reasoning]
+    chart_reasoning_tokens = [d["total_reasoning"] or 0 for d in daily_reasoning]
+    chart_output_tokens = [d["total_output"] or 0 for d in daily_reasoning]
+    chart_reasoning_requests = [d["reasoning_request_count"] or 0 for d in daily_reasoning]
+
     total_cost = sum(d["total_cost"] for d in daily_costs)
     total_requests = sum(d["request_count"] for d in daily_costs)
     total_cached = sum(d["cached_count"] for d in daily_costs)
     cache_rate = (total_cached / total_requests * 100) if total_requests > 0 else 0
+    total_reasoning_tokens = sum(d["total_reasoning"] or 0 for d in daily_reasoning)
 
     return templates.TemplateResponse("costs.html", {
         "request": request,
@@ -306,6 +314,11 @@ async def costs(
         "chart_costs": json.dumps(chart_costs),
         "chart_requests": json.dumps(chart_requests),
         "chart_cached": json.dumps(chart_cached),
+        "reasoning_labels": json.dumps(reasoning_labels),
+        "chart_reasoning_tokens": json.dumps(chart_reasoning_tokens),
+        "chart_output_tokens": json.dumps(chart_output_tokens),
+        "chart_reasoning_requests": json.dumps(chart_reasoning_requests),
+        "total_reasoning_tokens": total_reasoning_tokens,
         "by_provider": by_provider,
         "by_model": by_model,
         "session_costs": session_costs,
@@ -395,7 +408,134 @@ async def sessions_page(
     })
 
 
+# ── Session timeline page ──────────────────────────────────
+
+@app.get("/sessions/{session_id}/timeline", response_class=HTMLResponse)
+async def session_timeline(request: Request, session_id: str):
+    """セッション内のステップを時系列で可視化。"""
+    storage = get_storage()
+    session = storage.get_session(session_id)
+    if not session:
+        return HTMLResponse("<h1>Session Not Found</h1>", status_code=404)
+
+    # メインブランチのレコード
+    records_main = storage.get_requests_by_session(session_id, branch="main")
+
+    # 他ブランチも取得
+    all_records, _ = storage.list_requests(session_id=session_id, limit=1000)
+    branches: dict[str, list] = {}
+    for r in all_records:
+        if r.branch_name != "main":
+            branches.setdefault(r.branch_name, []).append(r)
+
+    # ステップを enriched format に変換
+    def enrich_step(r):
+        total_out = r.output_tokens + r.reasoning_tokens
+        reasoning_pct = (r.reasoning_tokens / total_out * 100) if total_out > 0 else 0
+        return {
+            "record": r,
+            "prompt_preview": extract_prompt_preview(r.request_body, max_len=100),
+            "response_preview": extract_response_preview(r.response_body, max_len=100),
+            "reasoning_pct": round(reasoning_pct, 0),
+        }
+
+    timeline_main = [enrich_step(r) for r in records_main]
+    timeline_branches = {
+        name: [enrich_step(r) for r in recs]
+        for name, recs in branches.items()
+    }
+
+    # サマリー
+    total_cost = sum(r.cost_usd for r in records_main)
+    total_reasoning = sum(r.reasoning_tokens for r in records_main)
+    total_steps = len(records_main)
+
+    daily_cost = storage.get_daily_cost()
+
+    return templates.TemplateResponse("timeline.html", {
+        "request": request,
+        "page_name": "sessions",
+        "session": session,
+        "daily_cost": daily_cost,
+        "unack_count": storage.get_unacknowledged_count(),
+        "timeline_main": timeline_main,
+        "timeline_branches": timeline_branches,
+        "total_cost": total_cost,
+        "total_reasoning": total_reasoning,
+        "total_steps": total_steps,
+    })
+
+
 # ── API endpoints (for future AJAX) ─────────────────────────
+
+@app.get("/diff", response_class=HTMLResponse)
+async def diff_page(
+    request: Request,
+    a: str = Query("", description="Record ID A"),
+    b: str = Query("", description="Record ID B"),
+):
+    """プロンプトdiff表示。"""
+    storage = get_storage()
+    daily_cost = storage.get_daily_cost()
+
+    if not a or not b:
+        # 選択UI
+        records, _ = storage.list_requests(limit=200)
+        return templates.TemplateResponse("diff.html", {
+            "request": request,
+            "page_name": "diff",
+            "daily_cost": daily_cost,
+            "unack_count": storage.get_unacknowledged_count(),
+            "diff": None,
+            "records": [{
+                "id": r.id,
+                "step_id": r.step_id,
+                "model": r.model,
+                "provider": r.provider,
+                "branch": r.branch_name,
+                "session_id": r.session_id,
+                "prompt_preview": extract_prompt_preview(r.request_body, max_len=60),
+                "timestamp": r.timestamp,
+            } for r in records],
+            "a": a,
+            "b": b,
+        })
+
+    record_a = storage.find_by_id(a)
+    record_b = storage.find_by_id(b)
+
+    if not record_a or not record_b:
+        return HTMLResponse("<h1>Record Not Found</h1>", status_code=404)
+
+    from llm_devproxy.core.diff import compute_diff
+    diff = compute_diff(record_a, record_b)
+
+    return templates.TemplateResponse("diff.html", {
+        "request": request,
+        "page_name": "diff",
+        "daily_cost": daily_cost,
+        "unack_count": storage.get_unacknowledged_count(),
+        "diff": diff,
+        "records": [],
+        "a": a,
+        "b": b,
+    })
+
+
+@app.get("/api/diff")
+async def api_diff(
+    a: str = Query(..., description="Record ID A"),
+    b: str = Query(..., description="Record ID B"),
+):
+    """2つのRequestRecordのdiffをJSON返却。"""
+    storage = get_storage()
+    record_a = storage.find_by_id(a)
+    record_b = storage.find_by_id(b)
+    if not record_a or not record_b:
+        return {"error": "Record not found"}
+
+    from llm_devproxy.core.diff import compute_diff
+    return compute_diff(record_a, record_b)
 
 @app.get("/alerts", response_class=HTMLResponse)
 async def alerts_page(request: Request):

@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llm-devproxy"
-version = "0.3.2"
-description = "LLM development debug layer - every API call recorded, nothing lost. Reasoning tokens, alerts, export, streaming."
+version = "0.4.0"
+description = "LLM development debug layer - every API call recorded, nothing lost. Reasoning tokens, prompt diff, session timeline, LangChain/LlamaIndex integration."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
-keywords = ["llm", "openai", "anthropic", "gemini", "development", "debugging", "cache", "semantic-cache", "reasoning-tokens", "streaming", "cost-management"]
+keywords = ["llm", "openai", "anthropic", "gemini", "langchain", "llamaindex", "development", "debugging", "cache", "semantic-cache", "reasoning-tokens", "streaming", "cost-management", "prompt-diff"]
 dependencies = [
     "typer>=0.12.0",
     "rich>=13.0.0",
@@ -24,6 +24,8 @@ semantic-local = ["sentence-transformers>=2.6.0"]
 semantic-openai = ["openai>=1.0.0"]
 proxy = ["fastapi>=0.110.0", "uvicorn>=0.29.0", "httpx>=0.27.0"]
 web = ["fastapi>=0.110.0", "uvicorn>=0.29.0", "jinja2>=3.1.0"]
+langchain = ["langchain-core>=0.2.0"]
+llamaindex = ["llama-index-core>=0.10.0"]
 all = [
     "openai>=1.0.0",
     "anthropic>=0.20.0",

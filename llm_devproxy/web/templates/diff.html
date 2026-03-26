@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Diff - llm-devproxy{% endblock %}
+
+{% block content %}
+{% if diff %}
+<!-- Diff result -->
+<div class="page-header">
+    <div>
+        <a href="/diff" style="color: var(--accent); text-decoration: none; font-size: 13px;">← 別のレコードを選択</a>
+        <h2 style="margin-top: 8px;">プロンプト Diff</h2>
+        <span style="font-size: 12px; color: var(--text-muted);">
+            類似度: {{ (diff.similarity * 100)|int }}%
+        </span>
+    </div>
+</div>
+
+<!-- Meta comparison -->
+<div style="display: grid; grid-template-columns: 1fr 80px 1fr; gap: 0; margin-bottom: 20px;">
+    <!-- Record A -->
+    <div class="detail-card" style="border-right: none; border-radius: var(--radius) 0 0 var(--radius);">
+        <h3 style="color: var(--accent);">A: Step {{ diff.meta_a.step_id }} ({{ diff.meta_a.branch }})</h3>
+        <div class="detail-row">
+            <span class="label">Model</span>
+            <span class="value">
+                <span class="badge badge-{{ diff.meta_a.provider }}">{{ diff.meta_a.provider }}</span>
+                <span class="model-name">{{ diff.meta_a.model }}</span>
+            </span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Cost</span>
+            <span class="value cost">${{ "%.4f"|format(diff.meta_a.cost) }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Tokens</span>
+            <span class="value tokens">in={{ diff.meta_a.input_tokens|format_tokens }} / out={{ diff.meta_a.output_tokens|format_tokens }}</span>
+        </div>
+        {% if diff.meta_a.reasoning_tokens > 0 %}
+        <div class="detail-row">
+            <span class="label">🧠 Reasoning</span>
+            <span class="value tokens-reasoning">{{ diff.meta_a.reasoning_tokens|format_tokens }} ({{ diff.meta_a.reasoning_pct|int }}%)</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Diff summary -->
+    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; background: var(--bg-card); border: 1px solid var(--border); padding: 8px 4px;">
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 12px;">DIFF</div>
+        {% set cost_diff = diff.meta_b.cost - diff.meta_a.cost %}
+        <div style="font-size: 12px; font-family: var(--mono); color: {{ 'var(--red)' if cost_diff > 0 else 'var(--green)' }};">
+            {{ "+" if cost_diff > 0 else "" }}${{ "%.4f"|format(cost_diff) }}
+        </div>
+        <div style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">
+            {{ (diff.similarity * 100)|int }}% match
+        </div>
+    </div>
+
+    <!-- Record B -->
+    <div class="detail-card" style="border-left: none; border-radius: 0 var(--radius) var(--radius) 0;">
+        <h3 style="color: var(--orange);">B: Step {{ diff.meta_b.step_id }} ({{ diff.meta_b.branch }})</h3>
+        <div class="detail-row">
+            <span class="label">Model</span>
+            <span class="value">
+                <span class="badge badge-{{ diff.meta_b.provider }}">{{ diff.meta_b.provider }}</span>
+                <span class="model-name">{{ diff.meta_b.model }}</span>
+            </span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Cost</span>
+            <span class="value cost">${{ "%.4f"|format(diff.meta_b.cost) }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="label">Tokens</span>
+            <span class="value tokens">in={{ diff.meta_b.input_tokens|format_tokens }} / out={{ diff.meta_b.output_tokens|format_tokens }}</span>
+        </div>
+        {% if diff.meta_b.reasoning_tokens > 0 %}
+        <div class="detail-row">
+            <span class="label">🧠 Reasoning</span>
+            <span class="value tokens-reasoning">{{ diff.meta_b.reasoning_tokens|format_tokens }} ({{ diff.meta_b.reasoning_pct|int }}%)</span>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Side-by-side diff -->
+<div class="detail-card" style="margin-bottom: 20px;">
+    <h3>プロンプト比較</h3>
+    <div class="diff-container">
+        <div class="diff-side diff-left">
+            <div class="diff-side-header" style="color: var(--accent);">A</div>
+            {% for line in diff.lines %}
+            <div class="diff-line diff-{{ line.type }}">
+                <span class="diff-text">{{ line.a }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="diff-side diff-right">
+            <div class="diff-side-header" style="color: var(--orange);">B</div>
+            {% for line in diff.lines %}
+            <div class="diff-line diff-{{ line.type }}">
+                <span class="diff-text">{{ line.b }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- Response comparison -->
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+    <div class="detail-card">
+        <h3 style="color: var(--accent);">A のレスポンス</h3>
+        <div style="font-size: 12px; color: var(--text); line-height: 1.6; white-space: pre-wrap;">{{ diff.meta_a.response_preview }}</div>
+    </div>
+    <div class="detail-card">
+        <h3 style="color: var(--orange);">B のレスポンス</h3>
+        <div style="font-size: 12px; color: var(--text); line-height: 1.6; white-space: pre-wrap;">{{ diff.meta_b.response_preview }}</div>
+    </div>
+</div>
+
+{% else %}
+<!-- Record selector -->
+<div class="page-header">
+    <h2>プロンプト Diff</h2>
+</div>
+
+<p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
+    2つのリクエストを選択して、プロンプトの差分を比較します。
+</p>
+
+<form class="filters" method="get" action="/diff" id="diffForm">
+    <select name="a" style="min-width: 400px;">
+        <option value="">レコード A を選択</option>
+        {% for r in records %}
+        <option value="{{ r.id }}" {% if a == r.id %}selected{% endif %}>
+            Step {{ r.step_id }} · {{ r.provider }}/{{ r.model }} · {{ r.prompt_preview }} ({{ r.timestamp|format_time }})
+        </option>
+        {% endfor %}
+    </select>
+
+    <span style="color: var(--text-muted); font-size: 18px; padding: 0 8px;">⟷</span>
+
+    <select name="b" style="min-width: 400px;">
+        <option value="">レコード B を選択</option>
+        {% for r in records %}
+        <option value="{{ r.id }}" {% if b == r.id %}selected{% endif %}>
+            Step {{ r.step_id }} · {{ r.provider }}/{{ r.model }} · {{ r.prompt_preview }} ({{ r.timestamp|format_time }})
+        </option>
+        {% endfor %}
+    </select>
+
+    <button type="submit" class="btn">Diff</button>
+</form>
+
+{% if not records %}
+<div class="empty">
+    <h3>リクエスト履歴がありません</h3>
+    <p>llm-devproxy 経由でAPIを呼ぶと、ここで比較できるようになります。</p>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<style>
+    .diff-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        margin-top: 12px;
+    }
+
+    .diff-side {
+        overflow-x: auto;
+    }
+
+    .diff-left {
+        border-right: 1px solid var(--border);
+    }
+
+    .diff-side-header {
+        font-size: 11px;
+        font-weight: 700;
+        padding: 6px 12px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+    }
+
+    .diff-line {
+        padding: 2px 12px;
+        font-family: var(--mono);
+        font-size: 12px;
+        line-height: 1.6;
+        min-height: 22px;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+
+    .diff-equal {
+        color: var(--text-muted);
+    }
+
+    .diff-delete {
+        background: rgba(248, 113, 113, 0.12);
+        color: var(--red);
+    }
+
+    .diff-insert {
+        background: rgba(74, 222, 128, 0.12);
+        color: var(--green);
+    }
+
+    .diff-replace {
+        background: rgba(251, 191, 36, 0.12);
+        color: var(--yellow);
+    }
+
+    .diff-text {
+        display: inline;
+    }
+</style>
+{% endblock %}

@@ -134,7 +134,10 @@
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
     <!-- Session A steps -->
     <div class="detail-card">
-        <h3 style="color: var(--accent);">{{ session_a.name }} — ステップ一覧</h3>
+        <h3 style="color: var(--accent);">
+            {{ session_a.name }} — ステップ一覧
+            <a href="/sessions/{{ session_a.id }}/timeline" style="font-size: 11px; color: var(--accent); margin-left: 8px; font-weight: 400;">📍 タイムライン →</a>
+        </h3>
         {% if records_a %}
         <table style="width: 100%; font-size: 12px;">
             <thead>
@@ -167,7 +170,10 @@
 
     <!-- Session B steps -->
     <div class="detail-card">
-        <h3 style="color: var(--orange);">{{ session_b.name }} — ステップ一覧</h3>
+        <h3 style="color: var(--orange);">
+            {{ session_b.name }} — ステップ一覧
+            <a href="/sessions/{{ session_b.id }}/timeline" style="font-size: 11px; color: var(--orange); margin-left: 8px; font-weight: 400;">📍 タイムライン →</a>
+        </h3>
         {% if records_b %}
         <table style="width: 100%; font-size: 12px;">
             <thead>

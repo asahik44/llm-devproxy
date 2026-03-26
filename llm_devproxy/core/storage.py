@@ -327,6 +327,30 @@ class Storage:
             """, params).fetchall()
         return [dict(r) for r in rows]
 
+    def get_daily_reasoning_costs(self, date_from: str = "", date_to: str = "",
+                                   provider: str = "", model: str = "") -> list[dict]:
+        """日別の推論トークン集計（推論コスト推移チャート用）。"""
+        where, params = self._cost_where(date_from, date_to, provider, model)
+        # is_cached除外
+        if where:
+            where += " AND is_cached = 0"
+        else:
+            where = "WHERE is_cached = 0"
+        with self._conn() as conn:
+            rows = conn.execute(f"""
+                SELECT
+                    DATE(timestamp) as date,
+                    SUM(reasoning_tokens) as total_reasoning,
+                    SUM(output_tokens) as total_output,
+                    SUM(CASE WHEN reasoning_tokens > 0 THEN 1 ELSE 0 END) as reasoning_request_count,
+                    COUNT(*) as request_count
+                FROM requests
+                {where}
+                GROUP BY DATE(timestamp)
+                ORDER BY date ASC
+            """, params).fetchall()
+        return [dict(r) for r in rows]
+
     def get_cost_by_provider(self, date_from: str = "", date_to: str = "",
                              provider: str = "", model: str = "") -> list[dict]:
         """プロバイダー別コスト。"""

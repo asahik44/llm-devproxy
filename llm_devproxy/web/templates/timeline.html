@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}{{ session.name }} - タイムライン{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="/sessions" style="color: var(--accent); text-decoration: none; font-size: 13px;">← セッション比較に戻る</a>
+        <h2 style="margin-top: 8px;">{{ session.name }}</h2>
+        <span style="font-size: 12px; color: var(--text-muted);">
+            {{ session.created_at|format_time }} · {{ total_steps }} steps · ${{ "%.4f"|format(total_cost) }}
+            {% if total_reasoning > 0 %}
+            · 🧠 {{ "{:,}".format(total_reasoning) }} reasoning tokens
+            {% endif %}
+        </span>
+    </div>
+</div>
+
+<!-- Main branch timeline -->
+<div class="timeline-container">
+    {% for step in timeline_main %}
+    <div class="timeline-step" onclick="window.location='/history/{{ step.record.id }}'">
+        <div class="timeline-line">
+            <div class="timeline-dot
+                {% if step.record.is_cached %}dot-cached
+                {% elif step.record.reasoning_tokens > 0 %}dot-reasoning
+                {% elif 'cost_limited' in step.record.tags %}dot-mock
+                {% else %}dot-live{% endif %}">
+            </div>
+            {% if not loop.last %}<div class="timeline-connector"></div>{% endif %}
+        </div>
+
+        <div class="timeline-content">
+            <div class="timeline-header">
+                <span class="timeline-step-num">Step {{ step.record.step_id }}</span>
+                <span class="badge badge-{{ step.record.provider }}">{{ step.record.provider }}</span>
+                <span class="model-name">{{ step.record.model }}</span>
+                <span class="timeline-time">{{ step.record.timestamp|format_time }}</span>
+            </div>
+
+            <div class="timeline-prompt">{{ step.prompt_preview }}</div>
+
+            <div class="timeline-meta">
+                <span class="tokens">in={{ step.record.input_tokens|format_tokens }}</span>
+                <span class="tokens">out={{ step.record.output_tokens|format_tokens }}</span>
+                {% if step.record.reasoning_tokens > 0 %}
+                <span class="tokens-reasoning">🧠{{ step.record.reasoning_tokens|format_tokens }}</span>
+                <span class="reasoning-pct">{{ step.reasoning_pct|int }}%</span>
+                {% endif %}
+                <span class="cost {% if step.record.cost_usd == 0 %}cost-zero{% endif %}">
+                    {{ step.record.cost_usd|format_cost }}
+                </span>
+                {% if step.record.is_cached %}
+                <span class="badge badge-cached">cached</span>
+                {% elif "cost_limited" in step.record.tags %}
+                <span class="badge badge-mock">mock</span>
+                {% elif step.record.reasoning_tokens > 0 %}
+                <span class="badge badge-reasoning">reasoning</span>
+                {% endif %}
+            </div>
+
+            <div class="timeline-response">{{ step.response_preview }}</div>
+        </div>
+    </div>
+
+    <!-- Branch fork point -->
+    {% for branch_name, branch_steps in timeline_branches.items() %}
+    {% for bs in branch_steps %}
+    {% if bs.record.step_id == step.record.step_id %}
+    <div class="timeline-branch">
+        <div class="timeline-line">
+            <div class="branch-fork">↳</div>
+        </div>
+        <div class="timeline-content branch-content" onclick="window.location='/history/{{ bs.record.id }}'">
+            <div class="timeline-header">
+                <span class="timeline-step-num">Step {{ bs.record.step_id }}'</span>
+                <span class="branch-label">{{ branch_name }}</span>
+                <span class="badge badge-{{ bs.record.provider }}">{{ bs.record.provider }}</span>
+                <span class="model-name">{{ bs.record.model }}</span>
+            </div>
+            <div class="timeline-prompt">{{ bs.prompt_preview }}</div>
+            <div class="timeline-meta">
+                <span class="tokens">in={{ bs.record.input_tokens|format_tokens }}</span>
+                <span class="tokens">out={{ bs.record.output_tokens|format_tokens }}</span>
+                {% if bs.record.reasoning_tokens > 0 %}
+                <span class="tokens-reasoning">🧠{{ bs.record.reasoning_tokens|format_tokens }}</span>
+                {% endif %}
+                <span class="cost">{{ bs.record.cost_usd|format_cost }}</span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+    {% endfor %}
+
+    {% endfor %}
+</div>
+
+{% if not timeline_main %}
+<div class="empty">
+    <h3>ステップがありません</h3>
+    <p>このセッションにはまだリクエストが記録されていません。</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<style>
+    .timeline-container {
+        max-width: 900px;
+        padding-left: 20px;
+    }
+
+    .timeline-step {
+        display: flex;
+        gap: 16px;
+        cursor: pointer;
+        position: relative;
+    }
+
+    .timeline-step:hover .timeline-content {
+        border-color: var(--accent-dim);
+        background: var(--bg-hover);
+    }
+
+    .timeline-line {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 20px;
+        flex-shrink: 0;
+    }
+
+    .timeline-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        margin-top: 18px;
+    }
+
+    .dot-live { background: var(--accent); }
+    .dot-cached { background: var(--green); }
+    .dot-reasoning { background: var(--orange); }
+    .dot-mock { background: var(--yellow); }
+
+    .timeline-connector {
+        width: 2px;
+        flex: 1;
+        background: var(--border);
+        min-height: 12px;
+    }
+
+    .timeline-content {
+        flex: 1;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 16px;
+        margin-bottom: 8px;
+        transition: all 0.15s;
+    }
+
+    .timeline-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        flex-wrap: wrap;
+    }
+
+    .timeline-step-num {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--accent);
+        font-family: var(--mono);
+    }
+
+    .timeline-time {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-left: auto;
+    }
+
+    .timeline-prompt {
+        font-size: 13px;
+        color: var(--text);
+        line-height: 1.5;
+        margin-bottom: 6px;
+    }
+
+    .timeline-meta {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .timeline-response {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 6px;
+        line-height: 1.4;
+        border-top: 1px solid var(--border);
+        padding-top: 6px;
+    }
+
+    /* Branch styles */
+    .timeline-branch {
+        display: flex;
+        gap: 16px;
+        margin-left: 30px;
+    }
+
+    .branch-fork {
+        color: var(--yellow);
+        font-size: 16px;
+        margin-top: 14px;
+        width: 20px;
+        text-align: center;
+    }
+
+    .branch-content {
+        border-color: var(--yellow);
+        border-left: 3px solid var(--yellow);
+    }
+
+    .branch-content:hover {
+        border-color: var(--yellow) !important;
+    }
+
+    .branch-label {
+        font-size: 10px;
+        font-family: var(--mono);
+        color: var(--yellow);
+        background: rgba(251, 191, 36, 0.1);
+        padding: 1px 6px;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}
